@@ -14,12 +14,15 @@ const initialState = {
   currentSong: null,
   playlist: [],
   isPlaying: false,
-  currentUser: { role: 'listener', username: 'Guest' },
+  currentUser: null,
+  isAuthenticated: false,
+  token: localStorage.getItem('token'),
   songs: [],
   artists: [],
   playlists: [],
   schedule: [],
   currentShow: null,
+  liveStream: null,
   isLive: false,
   notifications: []
 };
@@ -36,6 +39,8 @@ function radioReducer(state, action) {
       return { ...state, schedule: action.payload };
     case 'SET_CURRENT_SHOW':
       return { ...state, currentShow: action.payload };
+    case 'SET_LIVE_STREAM':
+      return { ...state, liveStream: action.payload };
     case 'SET_CURRENT_SONG':
       return { ...state, currentSong: action.payload };
     case 'SET_PLAYLIST':
@@ -43,7 +48,21 @@ function radioReducer(state, action) {
     case 'TOGGLE_PLAY':
       return { ...state, isPlaying: !state.isPlaying };
     case 'SET_USER':
-      return { ...state, currentUser: action.payload };
+      return { 
+        ...state, 
+        currentUser: action.payload, 
+        isAuthenticated: !!action.payload 
+      };
+    case 'SET_TOKEN':
+      return { ...state, token: action.payload };
+    case 'LOGOUT':
+      localStorage.removeItem('token');
+      return { 
+        ...state, 
+        currentUser: null, 
+        isAuthenticated: false, 
+        token: null 
+      };
     case 'SET_LIVE_STATUS':
       return { ...state, isLive: action.payload };
     case 'ADD_NOTIFICATION':
@@ -69,62 +88,123 @@ function RadioProvider({ children }) {
   const [state, dispatch] = useReducer(radioReducer, initialState);
   const [socket, setSocket] = useState(null);
 
+  // Set up axios interceptor for auth
+  useEffect(() => {
+    if (state.token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
+    } else {
+      delete axios.defaults.headers.common['Authorization'];
+    }
+  }, [state.token]);
+
+  // Load user data if token exists
+  useEffect(() => {
+    if (state.token && !state.currentUser) {
+      loadCurrentUser();
+    }
+  }, [state.token]);
+
+  const loadCurrentUser = async () => {
+    try {
+      const response = await axios.get(`${API}/auth/me`);
+      dispatch({ type: 'SET_USER', payload: response.data });
+    } catch (error) {
+      console.error('Error loading user:', error);
+      dispatch({ type: 'LOGOUT' });
+    }
+  };
+
   // WebSocket connection
   useEffect(() => {
-    const ws = new WebSocket(`${WS_URL}/api/ws/general`);
-    
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setSocket(ws);
-    };
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+    const connectWebSocket = () => {
+      const wsUrl = state.token 
+        ? `${WS_URL}/api/ws/general?token=${state.token}`
+        : `${WS_URL}/api/ws/general`;
       
-      switch (data.type) {
-        case 'live_stream_started':
-          dispatch({ type: 'SET_LIVE_STATUS', payload: true });
-          dispatch({ 
-            type: 'ADD_NOTIFICATION', 
-            payload: { 
-              message: 'Live stream started!', 
-              type: 'info' 
-            } 
-          });
-          break;
-        case 'live_stream_stopped':
-          dispatch({ type: 'SET_LIVE_STATUS', payload: false });
-          break;
-        case 'song_upload':
-          dispatch({ 
-            type: 'ADD_NOTIFICATION', 
-            payload: { 
-              message: `New song uploaded: ${data.song.title}`, 
-              type: 'success' 
-            } 
-          });
-          break;
-        case 'artist_submission':
-          dispatch({ 
-            type: 'ADD_NOTIFICATION', 
-            payload: { 
-              message: `New artist submission: ${data.artist.name}`, 
-              type: 'info' 
-            } 
-          });
-          break;
-        case 'chat_message':
-          // Handle chat messages
-          break;
-        default:
-          break;
-      }
+      const ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setSocket(ws);
+      };
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        switch (data.type) {
+          case 'live_stream_started':
+            dispatch({ type: 'SET_LIVE_STATUS', payload: true });
+            dispatch({ 
+              type: 'ADD_NOTIFICATION', 
+              payload: { 
+                message: `🎙️ ${data.dj_name} is now live: ${data.stream_title}`, 
+                type: 'info' 
+              } 
+            });
+            break;
+          case 'live_stream_stopped':
+            dispatch({ type: 'SET_LIVE_STATUS', payload: false });
+            dispatch({ 
+              type: 'ADD_NOTIFICATION', 
+              payload: { 
+                message: `📴 ${data.dj_name} ended their live stream`, 
+                type: 'info' 
+              } 
+            });
+            break;
+          case 'song_upload':
+            if (state.currentUser?.role === 'dj' || state.currentUser?.role === 'admin') {
+              dispatch({ 
+                type: 'ADD_NOTIFICATION', 
+                payload: { 
+                  message: `🎵 New song uploaded: ${data.song.title}`, 
+                  type: 'success' 
+                } 
+              });
+            }
+            break;
+          case 'artist_submission':
+            if (state.currentUser?.role === 'dj' || state.currentUser?.role === 'admin') {
+              dispatch({ 
+                type: 'ADD_NOTIFICATION', 
+                payload: { 
+                  message: `🎤 New artist submission: ${data.artist.name}`, 
+                  type: 'info' 
+                } 
+              });
+            }
+            break;
+          case 'dj_control':
+            // Handle DJ control messages for synchronized playback
+            if (data.action === 'play' && data.data.song) {
+              dispatch({ type: 'SET_CURRENT_SONG', payload: data.data.song });
+              dispatch({ type: 'TOGGLE_PLAY', payload: true });
+            }
+            break;
+          case 'chat_message':
+            // Handle chat messages
+            break;
+          default:
+            break;
+        }
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        setSocket(null);
+        // Reconnect after 3 seconds
+        setTimeout(connectWebSocket, 3000);
+      };
+      
+      return ws;
     };
+
+    const ws = connectWebSocket();
     
     return () => {
       if (ws) ws.close();
     };
-  }, []);
+  }, [state.token, state.currentUser]);
 
   // Load initial data
   useEffect(() => {
@@ -133,6 +213,7 @@ function RadioProvider({ children }) {
     loadPlaylists();
     loadSchedule();
     loadCurrentShow();
+    loadLiveStatus();
   }, []);
 
   const loadSongs = async () => {
@@ -182,6 +263,66 @@ function RadioProvider({ children }) {
     }
   };
 
+  const loadLiveStatus = async () => {
+    try {
+      const response = await axios.get(`${API}/live/status`);
+      if (response.data.id) {
+        dispatch({ type: 'SET_LIVE_STREAM', payload: response.data });
+        dispatch({ type: 'SET_LIVE_STATUS', payload: true });
+      }
+    } catch (error) {
+      console.error('Error loading live status:', error);
+    }
+  };
+
+  const login = async (username, password) => {
+    try {
+      const response = await axios.post(`${API}/auth/login`, {
+        username,
+        password
+      });
+      
+      const { access_token, user } = response.data;
+      localStorage.setItem('token', access_token);
+      dispatch({ type: 'SET_TOKEN', payload: access_token });
+      dispatch({ type: 'SET_USER', payload: user });
+      
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        message: error.response?.data?.detail || 'Login failed' 
+      };
+    }
+  };
+
+  const register = async (username, email, password, role = 'listener') => {
+    try {
+      const response = await axios.post(`${API}/auth/register`, {
+        username,
+        email,
+        password,
+        role
+      });
+      
+      const { access_token, user } = response.data;
+      localStorage.setItem('token', access_token);
+      dispatch({ type: 'SET_TOKEN', payload: access_token });
+      dispatch({ type: 'SET_USER', payload: user });
+      
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        message: error.response?.data?.detail || 'Registration failed' 
+      };
+    }
+  };
+
+  const logout = () => {
+    dispatch({ type: 'LOGOUT' });
+  };
+
   const value = {
     state,
     dispatch,
@@ -190,7 +331,11 @@ function RadioProvider({ children }) {
     loadArtists,
     loadPlaylists,
     loadSchedule,
-    loadCurrentShow
+    loadCurrentShow,
+    loadLiveStatus,
+    login,
+    register,
+    logout
   };
 
   return (
@@ -210,9 +355,132 @@ function useRadio() {
 
 // Components
 
+// Authentication Component
+function AuthModal({ isLogin, onClose, onSwitch }) {
+  const { login, register } = useRadio();
+  const [formData, setFormData] = useState({
+    username: '',
+    email: '',
+    password: '',
+    role: 'listener'
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError('');
+
+    const result = isLogin 
+      ? await login(formData.username, formData.password)
+      : await register(formData.username, formData.email, formData.password, formData.role);
+
+    if (result.success) {
+      onClose();
+    } else {
+      setError(result.message);
+    }
+    setIsSubmitting(false);
+  };
+
+  const handleInputChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  return (
+    <div className="auth-modal-overlay" onClick={onClose}>
+      <div className="auth-modal" onClick={e => e.stopPropagation()}>
+        <div className="auth-modal-header">
+          <h2>{isLogin ? '🎵 Sign In' : '🎤 Join the Station'}</h2>
+          <button className="close-btn" onClick={onClose}>×</button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="auth-form">
+          {error && <div className="error-message">{error}</div>}
+          
+          <div className="form-group">
+            <label>Username</label>
+            <input
+              type="text"
+              name="username"
+              value={formData.username}
+              onChange={handleInputChange}
+              required
+              placeholder="Enter your username"
+            />
+          </div>
+          
+          {!isLogin && (
+            <div className="form-group">
+              <label>Email</label>
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleInputChange}
+                required
+                placeholder="Enter your email"
+              />
+            </div>
+          )}
+          
+          <div className="form-group">
+            <label>Password</label>
+            <input
+              type="password"
+              name="password"
+              value={formData.password}
+              onChange={handleInputChange}
+              required
+              placeholder="Enter your password"
+            />
+          </div>
+          
+          {!isLogin && (
+            <div className="form-group">
+              <label>Role</label>
+              <select
+                name="role"
+                value={formData.role}
+                onChange={handleInputChange}
+              >
+                <option value="listener">🎧 Listener</option>
+                <option value="artist">🎤 Artist</option>
+                <option value="dj">🎙️ DJ</option>
+              </select>
+            </div>
+          )}
+          
+          <button 
+            type="submit" 
+            disabled={isSubmitting}
+            className="auth-submit-btn"
+          >
+            {isSubmitting ? '⏳ Processing...' : (isLogin ? '🎵 Sign In' : '🚀 Join Station')}
+          </button>
+        </form>
+        
+        <div className="auth-switch">
+          {isLogin ? (
+            <p>New to the station? <button onClick={onSwitch}>Create Account</button></p>
+          ) : (
+            <p>Already have an account? <button onClick={onSwitch}>Sign In</button></p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Header Component
 function Header() {
-  const { state } = useRadio();
+  const { state, logout } = useRadio();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
   
   return (
     <header className="header">
@@ -221,19 +489,192 @@ function Header() {
           <h1>🎵 Indie Music Station</h1>
         </div>
         <div className="live-indicator">
-          {state.isLive && (
+          {state.isLive && state.liveStream && (
             <div className="live-badge">
               <span className="live-dot"></span>
-              LIVE
+              LIVE: {state.liveStream.dj_name}
             </div>
           )}
         </div>
         <div className="user-info">
-          <span>Welcome, {state.currentUser.username}</span>
-          <span className="role-badge">{state.currentUser.role}</span>
+          {state.isAuthenticated ? (
+            <div className="user-actions">
+              <span>Welcome, {state.currentUser.username}</span>
+              <span className={`role-badge ${state.currentUser.role}`}>
+                {state.currentUser.role}
+              </span>
+              <button onClick={logout} className="logout-btn">Logout</button>
+            </div>
+          ) : (
+            <div className="auth-buttons">
+              <button 
+                onClick={() => {
+                  setIsLogin(true);
+                  setShowAuthModal(true);
+                }}
+                className="auth-btn login-btn"
+              >
+                Sign In
+              </button>
+              <button 
+                onClick={() => {
+                  setIsLogin(false);
+                  setShowAuthModal(true);
+                }}
+                className="auth-btn register-btn"
+              >
+                Join Station
+              </button>
+            </div>
+          )}
         </div>
       </div>
+      
+      {showAuthModal && (
+        <AuthModal
+          isLogin={isLogin}
+          onClose={() => setShowAuthModal(false)}
+          onSwitch={() => setIsLogin(!isLogin)}
+        />
+      )}
     </header>
+  );
+}
+
+// DJ Dashboard Component
+function DJDashboard() {
+  const { state, socket } = useRadio();
+  const [streamTitle, setStreamTitle] = useState('');
+  const [streamDescription, setStreamDescription] = useState('');
+  const [isStartingStream, setIsStartingStream] = useState(false);
+
+  const startLiveStream = async () => {
+    if (!streamTitle.trim()) {
+      alert('Please enter a stream title');
+      return;
+    }
+    
+    setIsStartingStream(true);
+    try {
+      await axios.post(`${API}/live/start`, {
+        title: streamTitle,
+        description: streamDescription
+      });
+      setStreamTitle('');
+      setStreamDescription('');
+    } catch (error) {
+      console.error('Error starting stream:', error);
+      alert('Failed to start live stream');
+    } finally {
+      setIsStartingStream(false);
+    }
+  };
+
+  const stopLiveStream = async () => {
+    try {
+      await axios.post(`${API}/live/stop`);
+    } catch (error) {
+      console.error('Error stopping stream:', error);
+    }
+  };
+
+  const djControl = (action, data = {}) => {
+    if (socket) {
+      socket.send(JSON.stringify({
+        type: 'dj_control',
+        action,
+        data,
+        username: state.currentUser.username
+      }));
+    }
+  };
+
+  const playSelectedSong = (song) => {
+    djControl('play', { song });
+  };
+
+  return (
+    <div className="dj-dashboard">
+      <div className="dj-header">
+        <h2>🎙️ DJ Dashboard</h2>
+        <p>Control your live broadcast</p>
+      </div>
+      
+      <div className="live-stream-controls">
+        <h3>Live Stream Controls</h3>
+        {!state.isLive ? (
+          <div className="start-stream-form">
+            <div className="form-group">
+              <label>Stream Title</label>
+              <input
+                type="text"
+                value={streamTitle}
+                onChange={(e) => setStreamTitle(e.target.value)}
+                placeholder="Enter your show title"
+              />
+            </div>
+            <div className="form-group">
+              <label>Description (optional)</label>
+              <textarea
+                value={streamDescription}
+                onChange={(e) => setStreamDescription(e.target.value)}
+                placeholder="Describe your show..."
+                rows="3"
+              />
+            </div>
+            <button 
+              onClick={startLiveStream}
+              disabled={isStartingStream}
+              className="start-stream-btn"
+            >
+              {isStartingStream ? '⏳ Starting...' : '🎙️ Go Live'}
+            </button>
+          </div>
+        ) : (
+          <div className="live-controls">
+            <div className="live-status">
+              <div className="live-badge large">
+                <span className="live-dot"></span>
+                LIVE ON AIR
+              </div>
+              <p>Broadcasting: {state.liveStream?.title}</p>
+            </div>
+            <button onClick={stopLiveStream} className="stop-stream-btn">
+              📴 End Stream
+            </button>
+          </div>
+        )}
+      </div>
+      
+      <div className="dj-music-controls">
+        <h3>Music Library Control</h3>
+        <div className="dj-song-grid">
+          {state.songs.map(song => (
+            <div key={song.id} className="dj-song-card">
+              {song.artwork_url && (
+                <img 
+                  src={`${BACKEND_URL}${song.artwork_url}`} 
+                  alt="Album artwork"
+                  className="song-artwork-small"
+                />
+              )}
+              <div className="dj-song-info">
+                <h4>{song.title}</h4>
+                <p>{song.artist_name}</p>
+                {song.genre && <span className="genre-tag">{song.genre}</span>}
+              </div>
+              <button 
+                onClick={() => playSelectedSong(song)}
+                className="dj-play-btn"
+                disabled={!state.isLive}
+              >
+                📻 Broadcast
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -253,7 +694,6 @@ function AudioPlayer() {
     audio.addEventListener('loadedmetadata', updateDuration);
     audio.addEventListener('ended', () => {
       dispatch({ type: 'TOGGLE_PLAY' });
-      // Auto-play next song if in playlist
     });
     
     return () => {
@@ -309,8 +749,8 @@ function AudioPlayer() {
     return (
       <div className="audio-player no-song">
         <div className="player-info">
-          <h3>Select a song to play</h3>
-          <p>Choose from our collection of indie artists</p>
+          <h3>🎵 Ready to Play</h3>
+          <p>Select a song from our indie collection or listen to live broadcasts</p>
         </div>
       </div>
     );
@@ -330,6 +770,7 @@ function AudioPlayer() {
           <h3>{state.currentSong.title}</h3>
           <p>{state.currentSong.artist_name}</p>
           {state.currentSong.genre && <span className="genre">{state.currentSong.genre}</span>}
+          {state.isLive && <span className="live-indicator-small">🔴 LIVE</span>}
         </div>
       </div>
       
@@ -369,7 +810,7 @@ function AudioPlayer() {
   );
 }
 
-// Song List Component
+// Song List Component (Listeners can only browse and play, not control broadcasts)
 function SongList() {
   const { state, dispatch } = useRadio();
   const [filter, setFilter] = useState('');
@@ -385,14 +826,22 @@ function SongList() {
   const genres = [...new Set(state.songs.map(song => song.genre).filter(Boolean))];
 
   const handleSongSelect = (song) => {
-    dispatch({ type: 'SET_CURRENT_SONG', payload: song });
-    dispatch({ type: 'TOGGLE_PLAY' });
+    // Only allow song selection if user is not in a live broadcast
+    if (!state.isLive) {
+      dispatch({ type: 'SET_CURRENT_SONG', payload: song });
+      dispatch({ type: 'TOGGLE_PLAY' });
+    }
   };
 
   return (
     <div className="song-list-section">
       <div className="section-header">
-        <h2>Music Library</h2>
+        <h2>🎵 Music Library</h2>
+        {state.isLive && (
+          <div className="live-notice">
+            🔴 Live broadcast in progress - Playback controlled by DJ
+          </div>
+        )}
         <div className="filters">
           <input
             type="text"
@@ -418,7 +867,7 @@ function SongList() {
         {filteredSongs.map(song => (
           <div 
             key={song.id} 
-            className={`song-card ${state.currentSong?.id === song.id ? 'active' : ''}`}
+            className={`song-card ${state.currentSong?.id === song.id ? 'active' : ''} ${state.isLive ? 'live-mode' : ''}`}
             onClick={() => handleSongSelect(song)}
           >
             {song.artwork_url && (
@@ -433,8 +882,11 @@ function SongList() {
               <p>{song.artist_name}</p>
               {song.genre && <span className="genre-tag">{song.genre}</span>}
             </div>
-            <button className="play-button">
-              {state.currentSong?.id === song.id && state.isPlaying ? '⏸️' : '▶️'}
+            <button 
+              className={`play-button ${state.isLive ? 'disabled' : ''}`}
+              disabled={state.isLive}
+            >
+              {state.isLive ? '🔴' : (state.currentSong?.id === song.id && state.isPlaying ? '⏸️' : '▶️')}
             </button>
           </div>
         ))}
@@ -450,7 +902,7 @@ function SongList() {
   );
 }
 
-// Artist Submission Form
+// Artist Submission Form (unchanged)
 function ArtistSubmissionForm() {
   const [formData, setFormData] = useState({
     name: '',
@@ -500,7 +952,7 @@ function ArtistSubmissionForm() {
   return (
     <div className="artist-submission-form">
       <div className="form-header">
-        <h2>Artist Submission</h2>
+        <h2>🎤 Artist Submission</h2>
         <p>Share your music with our indie community</p>
       </div>
       
@@ -557,6 +1009,7 @@ function ArtistSubmissionForm() {
 
 // Song Upload Form
 function SongUploadForm() {
+  const { state } = useRadio();
   const [formData, setFormData] = useState({
     title: '',
     artist_name: '',
@@ -626,89 +1079,100 @@ function SongUploadForm() {
   return (
     <div className="song-upload-form">
       <div className="form-header">
-        <h2>Upload Your Song</h2>
+        <h2>🎵 Upload Your Song</h2>
         <p>Share your music with the indie community</p>
+        {!state.isAuthenticated && (
+          <div className="auth-notice">
+            <p>⚠️ Please sign in to upload music</p>
+          </div>
+        )}
       </div>
       
-      <form onSubmit={handleSubmit} className="upload-form">
-        <div className="form-group">
-          <label htmlFor="title">Song Title *</label>
-          <input
-            type="text"
-            id="title"
-            name="title"
-            value={formData.title}
-            onChange={handleInputChange}
-            required
-            placeholder="Name of your song"
-          />
-        </div>
-        
-        <div className="form-group">
-          <label htmlFor="artist_name">Artist Name *</label>
-          <input
-            type="text"
-            id="artist_name"
-            name="artist_name"
-            value={formData.artist_name}
-            onChange={handleInputChange}
-            required
-            placeholder="Your artist or band name"
-          />
-        </div>
-        
-        <div className="form-group">
-          <label htmlFor="genre">Genre</label>
-          <select
-            id="genre"
-            name="genre"
-            value={formData.genre}
-            onChange={handleInputChange}
+      {state.isAuthenticated ? (
+        <form onSubmit={handleSubmit} className="upload-form">
+          <div className="form-group">
+            <label htmlFor="title">Song Title *</label>
+            <input
+              type="text"
+              id="title"
+              name="title"
+              value={formData.title}
+              onChange={handleInputChange}
+              required
+              placeholder="Name of your song"
+            />
+          </div>
+          
+          <div className="form-group">
+            <label htmlFor="artist_name">Artist Name *</label>
+            <input
+              type="text"
+              id="artist_name"
+              name="artist_name"
+              value={formData.artist_name}
+              onChange={handleInputChange}
+              required
+              placeholder="Your artist or band name"
+            />
+          </div>
+          
+          <div className="form-group">
+            <label htmlFor="genre">Genre</label>
+            <select
+              id="genre"
+              name="genre"
+              value={formData.genre}
+              onChange={handleInputChange}
+            >
+              <option value="">Select Genre</option>
+              <option value="Indie Rock">Indie Rock</option>
+              <option value="Indie Pop">Indie Pop</option>
+              <option value="Alternative">Alternative</option>
+              <option value="Folk">Folk</option>
+              <option value="Electronic">Electronic</option>
+              <option value="Hip Hop">Hip Hop</option>
+              <option value="R&B">R&B</option>
+              <option value="Jazz">Jazz</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          
+          <div className="form-group">
+            <label htmlFor="audio_file">Audio File * (MP3, WAV)</label>
+            <input
+              type="file"
+              id="audio_file"
+              accept=".mp3,.wav,.m4a"
+              onChange={(e) => setAudioFile(e.target.files[0])}
+              required
+              className="file-input"
+            />
+          </div>
+          
+          <div className="form-group">
+            <label htmlFor="artwork_file">Artwork (optional)</label>
+            <input
+              type="file"
+              id="artwork_file"
+              accept=".jpg,.jpeg,.png"
+              onChange={(e) => setArtworkFile(e.target.files[0])}
+              className="file-input"
+            />
+          </div>
+          
+          <button 
+            type="submit" 
+            disabled={isUploading}
+            className="upload-btn"
           >
-            <option value="">Select Genre</option>
-            <option value="Indie Rock">Indie Rock</option>
-            <option value="Indie Pop">Indie Pop</option>
-            <option value="Alternative">Alternative</option>
-            <option value="Folk">Folk</option>
-            <option value="Electronic">Electronic</option>
-            <option value="Hip Hop">Hip Hop</option>
-            <option value="R&B">R&B</option>
-            <option value="Jazz">Jazz</option>
-            <option value="Other">Other</option>
-          </select>
+            {isUploading ? '⏳ Uploading...' : '🎵 Upload Song'}
+          </button>
+        </form>
+      ) : (
+        <div className="please-login">
+          <p>Please sign in to upload music to the station</p>
         </div>
-        
-        <div className="form-group">
-          <label htmlFor="audio_file">Audio File * (MP3, WAV)</label>
-          <input
-            type="file"
-            id="audio_file"
-            accept=".mp3,.wav,.m4a"
-            onChange={(e) => setAudioFile(e.target.files[0])}
-            required
-            className="file-input"
-          />
-        </div>
-        
-        <div className="form-group">
-          <label htmlFor="artwork_file">Artwork (optional)</label>
-          <input
-            type="file"
-            id="artwork_file"
-            accept=".jpg,.jpeg,.png"
-            onChange={(e) => setArtworkFile(e.target.files[0])}
-            className="file-input"
-          />
-        </div>
-        
-        <button 
-          type="submit" 
-          disabled={isUploading}
-          className="upload-btn"
-        >
-          {isUploading ? '⏳ Uploading...' : '🎵 Upload Song'}
-        </button>
-      </form>
+      )}
     </div>
   );
 }
@@ -717,34 +1181,46 @@ function SongUploadForm() {
 function CurrentShowInfo() {
   const { state } = useRadio();
   
-  if (!state.currentShow) {
+  if (state.isLive && state.liveStream) {
     return (
-      <div className="current-show no-show">
-        <h3>🎵 Automated Programming</h3>
-        <p>Enjoy our curated indie music collection</p>
+      <div className="current-show live">
+        <div className="show-info">
+          <h3>🎙️ {state.liveStream.title}</h3>
+          <p>with DJ {state.liveStream.dj_name}</p>
+          {state.liveStream.description && (
+            <p className="show-description">{state.liveStream.description}</p>
+          )}
+        </div>
+        <div className="live-indicator-large">
+          <span className="live-dot"></span>
+          LIVE ON AIR
+        </div>
+      </div>
+    );
+  }
+  
+  if (state.currentShow) {
+    return (
+      <div className="current-show">
+        <div className="show-info">
+          <h3>🎙️ {state.currentShow.title}</h3>
+          <p>with DJ {state.currentShow.dj_name}</p>
+          {state.currentShow.description && (
+            <p className="show-description">{state.currentShow.description}</p>
+          )}
+          <div className="show-time">
+            {new Date(state.currentShow.start_time).toLocaleTimeString()} - 
+            {new Date(state.currentShow.end_time).toLocaleTimeString()}
+          </div>
+        </div>
       </div>
     );
   }
   
   return (
-    <div className="current-show">
-      <div className="show-info">
-        <h3>🎙️ {state.currentShow.title}</h3>
-        <p>with DJ {state.currentShow.dj_name}</p>
-        {state.currentShow.description && (
-          <p className="show-description">{state.currentShow.description}</p>
-        )}
-        <div className="show-time">
-          {new Date(state.currentShow.start_time).toLocaleTimeString()} - 
-          {new Date(state.currentShow.end_time).toLocaleTimeString()}
-        </div>
-      </div>
-      {state.isLive && (
-        <div className="live-indicator-large">
-          <span className="live-dot"></span>
-          LIVE ON AIR
-        </div>
-      )}
+    <div className="current-show no-show">
+      <h3>🎵 Automated Programming</h3>
+      <p>Enjoy our curated indie music collection</p>
     </div>
   );
 }
@@ -783,6 +1259,10 @@ function Notifications() {
 // Main App Component
 function App() {
   const [currentTab, setCurrentTab] = useState('listen');
+  const { state } = useRadio();
+  
+  const canAccessDJFeatures = state.isAuthenticated && 
+    (state.currentUser?.role === 'dj' || state.currentUser?.role === 'admin');
   
   return (
     <RadioProvider>
@@ -809,6 +1289,14 @@ function App() {
           >
             🎤 Submit Artist
           </button>
+          {canAccessDJFeatures && (
+            <button 
+              className={currentTab === 'dj' ? 'active' : ''}
+              onClick={() => setCurrentTab('dj')}
+            >
+              🎙️ DJ Dashboard
+            </button>
+          )}
         </nav>
         
         <main className="main-content">
@@ -822,6 +1310,7 @@ function App() {
           
           {currentTab === 'upload' && <SongUploadForm />}
           {currentTab === 'submit' && <ArtistSubmissionForm />}
+          {currentTab === 'dj' && canAccessDJFeatures && <DJDashboard />}
         </main>
         
         <footer className="footer">
