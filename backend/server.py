@@ -973,7 +973,7 @@ async def upload_song_to_station(
 @api_router.get("/stations/{station_slug}/songs/requests")
 async def get_station_song_requests(
     station_slug: str,
-    current_user: User = Depends(get_station_owner)
+    current_user: User = Depends(get_station_owner_by_slug)
 ):
     """Get pending song requests for station (station owner or admin only)"""
     station = await db.stations.find_one({"slug": station_slug})
