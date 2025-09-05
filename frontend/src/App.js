@@ -1266,6 +1266,7 @@ function StationUpload() {
   const [artworkFile, setArtworkFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1286,12 +1287,13 @@ function StationUpload() {
     }
     
     try {
-      await axios.post(`${API}/stations/${stationSlug}/songs/upload`, uploadData, {
+      const response = await axios.post(`${API}/stations/${stationSlug}/songs/upload`, uploadData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
       setUploaded(true);
+      setUploadStatus(response.data.status);
       setFormData({ title: '', artist_name: '', genre: '' });
       setAudioFile(null);
       setArtworkFile(null);
