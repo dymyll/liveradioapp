@@ -1317,8 +1317,15 @@ function StationUpload() {
     return (
       <div className="upload-success">
         <h2>🎵 Upload Successful!</h2>
-        <p>Your song has been uploaded to {state.currentStation?.name} and is pending approval.</p>
-        <button onClick={() => setUploaded(false)} className="upload-another-btn">
+        {uploadStatus === 'approved' ? (
+          <p>Your song has been uploaded and added to {state.currentStation?.name} immediately!</p>
+        ) : (
+          <p>Your song has been uploaded to {state.currentStation?.name} and is pending approval from the station owner.</p>
+        )}
+        <button onClick={() => {
+          setUploaded(false);
+          setUploadStatus('');
+        }} className="upload-another-btn">
           Upload Another Song
         </button>
       </div>
