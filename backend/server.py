@@ -162,6 +162,12 @@ class Song(BaseModel):
     artwork_url: Optional[str] = None
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     approved: bool = False
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[str] = None  # User ID who approved/declined
+    declined: bool = False
+    decline_reason: Optional[str] = None
+    declined_at: Optional[datetime] = None
+    status: str = "pending"  # pending, approved, declined
 
 class Playlist(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
