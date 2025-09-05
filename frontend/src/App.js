@@ -820,14 +820,59 @@ function CreateStation() {
     setIsCreating(true);
     setError('');
 
-    const result = await createStation(formData.name, formData.description, formData.genre);
-    
-    if (result.success) {
-      navigate(`/station/${result.station.slug}`);
-    } else {
-      setError(result.message);
+    // Basic validation
+    if (!formData.name.trim()) {
+      setError('Station name is required');
+      setIsCreating(false);
+      return;
     }
-    setIsCreating(false);
+
+    if (formData.name.length < 3) {
+      setError('Station name must be at least 3 characters long');
+      setIsCreating(false);
+      return;
+    }
+
+    if (formData.name.length > 50) {
+      setError('Station name must be less than 50 characters');
+      setIsCreating(false);
+      return;
+    }
+
+    try {
+      const response = await axios.post(`${API}/stations`, {
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        genre: formData.genre
+      });
+      
+      // Success - navigate to the new station
+      navigate(`/station/${response.data.slug}`);
+      
+    } catch (error) {
+      console.error('Station creation error:', error);
+      
+      // Extract error message from response
+      let errorMessage = 'Failed to create station';
+      
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.response?.status === 403) {
+        errorMessage = 'You need DJ or Admin permissions to create a station';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Please sign in to create a station';
+      } else if (error.response?.status === 400) {
+        errorMessage = 'Invalid station data. Please check your inputs.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const handleInputChange = (e) => {
@@ -835,6 +880,11 @@ function CreateStation() {
       ...formData,
       [e.target.name]: e.target.value
     });
+    
+    // Clear error when user starts typing
+    if (error) {
+      setError('');
+    }
   };
 
   if (!state.isAuthenticated || (state.currentUser?.role !== 'dj' && state.currentUser?.role !== 'admin')) {
@@ -842,6 +892,7 @@ function CreateStation() {
       <div className="create-station-unauthorized">
         <h2>🚫 Access Denied</h2>
         <p>You need to be signed in as a DJ or Admin to create a station.</p>
+        <p>Current role: {state.currentUser?.role || 'Not signed in'}</p>
         <Link to="/" className="back-home-btn">← Back to Home</Link>
       </div>
     );
@@ -856,7 +907,11 @@ function CreateStation() {
         </div>
         
         <form onSubmit={handleSubmit}>
-          {error && <div className="error-message">{error}</div>}
+          {error && (
+            <div className="error-message-detailed">
+              <strong>❌ Error:</strong> {error}
+            </div>
+          )}
           
           <div className="form-group">
             <label htmlFor="name">Station Name *</label>
@@ -868,8 +923,12 @@ function CreateStation() {
               onChange={handleInputChange}
               required
               placeholder="e.g. Mike's Indie Rock Station"
+              maxLength="50"
+              className={error && error.includes('name') ? 'error-input' : ''}
             />
-            <small>This will be used to create your unique URL</small>
+            <small className="input-helper">
+              {formData.name.length}/50 characters - This will be used to create your unique URL
+            </small>
           </div>
           
           <div className="form-group">
@@ -881,7 +940,11 @@ function CreateStation() {
               onChange={handleInputChange}
               placeholder="Tell listeners what makes your station special..."
               rows="4"
+              maxLength="500"
             />
+            <small className="input-helper">
+              {formData.description.length}/500 characters
+            </small>
           </div>
           
           <div className="form-group">
@@ -901,6 +964,11 @@ function CreateStation() {
               <option value="Hip Hop">Hip Hop</option>
               <option value="R&B">R&B</option>
               <option value="Jazz">Jazz</option>
+              <option value="Classical">Classical</option>
+              <option value="Rock">Rock</option>
+              <option value="Pop">Pop</option>
+              <option value="Country">Country</option>
+              <option value="Reggae">Reggae</option>
               <option value="Talk Radio">Talk Radio</option>
               <option value="Mix">Mix</option>
             </select>
@@ -908,11 +976,16 @@ function CreateStation() {
           
           <button 
             type="submit" 
-            disabled={isCreating}
+            disabled={isCreating || !formData.name.trim()}
             className="create-btn"
           >
             {isCreating ? '⏳ Creating Station...' : '🚀 Create My Station'}
           </button>
+          
+          <div className="form-help">
+            <p><strong>💡 Tip:</strong> Choose a unique name that represents your music style!</p>
+            <p><strong>🎵 Next Steps:</strong> After creation, you can upload music and start broadcasting.</p>
+          </div>
         </form>
       </div>
     </div>
