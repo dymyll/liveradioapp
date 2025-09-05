@@ -626,8 +626,9 @@ async def create_station(station_data: StationCreate, current_user: User = Depen
         )
 
 @api_router.get("/stations", response_model=List[StationWithDetails])
-async def get_all_stations(current_user: Optional[User] = Depends(get_current_user_optional)):
-    """Get all active stations for discovery"""
+async def get_all_stations():
+    """Get all active stations for discovery - public endpoint"""
+    current_user = None  # Allow unauthenticated access
     stations = await db.stations.find({"is_active": True}).to_list(100)
     
     enhanced_stations = []
