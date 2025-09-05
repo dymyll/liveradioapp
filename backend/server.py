@@ -1033,7 +1033,7 @@ async def approve_song(
     station_slug: str,
     song_id: str,
     approval_data: SongApproval,
-    current_user: User = Depends(get_station_owner)
+    current_user: User = Depends(get_station_owner_by_slug)
 ):
     """Approve or decline a song request (station owner or admin only)"""
     station = await db.stations.find_one({"slug": station_slug})
