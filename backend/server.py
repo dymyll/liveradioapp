@@ -949,7 +949,140 @@ async def upload_song_to_station(
         station["id"]
     )
     
-    return {"message": "Song uploaded successfully", "id": song.id}
+    return {"message": "Song uploaded successfully", "id": song.id, "status": song_status}
+
+# Song Approval Management
+@api_router.get("/stations/{station_slug}/songs/requests")
+async def get_station_song_requests(
+    station_slug: str,
+    current_user: User = Depends(get_station_owner)
+):
+    """Get pending song requests for station (station owner or admin only)"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    # Get all pending songs for this station
+    pending_songs = await db.songs.find({
+        "station_id": station["id"],
+        "status": "pending"
+    }).to_list(100)
+    
+    result = []
+    for song_doc in pending_songs:
+        song = Song(**serialize_doc(song_doc))
+        # Convert datetime fields for JSON serialization
+        song_dict = song.dict()
+        if song_dict.get('submitted_at'):
+            song_dict['submitted_at'] = song_dict['submitted_at'].isoformat()
+        result.append(song_dict)
+    
+    return result
+
+@api_router.post("/stations/{station_slug}/songs/{song_id}/approve")
+async def approve_song(
+    station_slug: str,
+    song_id: str,
+    approval_data: SongApproval,
+    current_user: User = Depends(get_station_owner)
+):
+    """Approve or decline a song request (station owner or admin only)"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    song = await db.songs.find_one({"id": song_id, "station_id": station["id"]})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    if song["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Song is not pending approval")
+    
+    # Update song based on action
+    update_data = {
+        "approved_by": current_user.id
+    }
+    
+    if approval_data.action == "approve":
+        update_data.update({
+            "approved": True,
+            "status": "approved",
+            "approved_at": datetime.now(timezone.utc)
+        })
+        message = "Song approved successfully"
+    elif approval_data.action == "decline":
+        update_data.update({
+            "declined": True,
+            "status": "declined",
+            "declined_at": datetime.now(timezone.utc),
+            "decline_reason": approval_data.reason or "No reason provided"
+        })
+        message = "Song declined"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'approve' or 'decline'")
+    
+    # Update the song in database
+    await db.songs.update_one(
+        {"id": song_id},
+        {"$set": update_data}
+    )
+    
+    # Broadcast the decision to the station
+    await manager.broadcast_to_station(
+        json.dumps({
+            "type": "song_decision",
+            "station_id": station["id"],
+            "song_id": song_id,
+            "action": approval_data.action,
+            "reason": approval_data.reason
+        }),
+        station["id"]
+    )
+    
+    return {"message": message, "action": approval_data.action}
+
+@api_router.get("/user/submissions")
+async def get_user_submissions(current_user: User = Depends(get_current_user)):
+    """Get current user's song submissions across all stations"""
+    
+    # Get all songs submitted by this user
+    user_songs = await db.songs.find({"artist_id": current_user.id}).to_list(100)
+    
+    result = []
+    for song_doc in user_songs:
+        song = Song(**serialize_doc(song_doc))
+        
+        # Get station info
+        station = await db.stations.find_one({"id": song.station_id})
+        if not station:
+            continue
+            
+        submission = SongSubmissionStatus(
+            id=song.id,
+            title=song.title,
+            artist_name=song.artist_name,
+            station_name=station["name"],
+            station_slug=station["slug"],
+            status=song.status,
+            submitted_at=song.submitted_at,
+            approved_at=song.approved_at,
+            declined_at=song.declined_at,
+            decline_reason=song.decline_reason,
+            artwork_url=song.artwork_url
+        )
+        
+        # Convert datetime fields for JSON serialization
+        submission_dict = submission.dict()
+        if submission_dict.get('submitted_at'):
+            submission_dict['submitted_at'] = submission_dict['submitted_at'].isoformat()
+        if submission_dict.get('approved_at'):
+            submission_dict['approved_at'] = submission_dict['approved_at'].isoformat()
+        if submission_dict.get('declined_at'):
+            submission_dict['declined_at'] = submission_dict['declined_at'].isoformat()
+            
+        result.append(submission_dict)
+    
+    return result
 
 # Station Live Streaming
 @api_router.post("/stations/{station_slug}/live/start")
