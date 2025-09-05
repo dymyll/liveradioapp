@@ -228,10 +228,10 @@ class AuthenticationTester:
         if not self.auth_token:
             return self.log_test("Upload Endpoint Access", False, "No auth token available")
         
-        # First, create a test station to upload to
-        station_created = self.create_test_station()
-        if not station_created:
-            return self.log_test("Upload Endpoint Access", False, "Failed to create test station")
+        # First, try to get existing stations
+        station_slug = self.get_or_create_test_station()
+        if not station_slug:
+            return self.log_test("Upload Endpoint Access", False, "No station available for testing")
         
         try:
             # Create dummy files for upload
@@ -253,7 +253,7 @@ class AuthenticationTester:
                 'artwork_file': ('auth_test_artwork.jpg', image_file, 'image/jpeg')
             }
             
-            url = f"{self.api_url}/stations/{self.test_station_slug}/songs/upload"
+            url = f"{self.api_url}/stations/{station_slug}/songs/upload"
             headers = {
                 'Authorization': f'Bearer {self.auth_token}'
             }
@@ -298,10 +298,28 @@ class AuthenticationTester:
         except requests.exceptions.RequestException as e:
             return self.log_test("Upload Endpoint Access", False, f"Request failed: {str(e)}")
 
+    def get_or_create_test_station(self):
+        """Get existing stations or create a test station for upload testing"""
+        # First, try to get existing stations
+        try:
+            url = f"{self.api_url}/stations"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                stations = response.json()
+                if stations and len(stations) > 0:
+                    # Use the first available station
+                    return stations[0]['slug']
+        except:
+            pass
+        
+        # If no existing stations, try to create one
+        return self.create_test_station()
+
     def create_test_station(self):
         """Create a test station for upload testing"""
         if not self.auth_token:
-            return False
+            return None
         
         station_data = {
             "name": f"Auth Test Station {int(time.time())}",
@@ -320,15 +338,19 @@ class AuthenticationTester:
             
             if response.status_code == 200:
                 response_data = response.json()
-                self.test_station_slug = response_data.get('slug')
-                return bool(self.test_station_slug)
+                return response_data.get('slug')
             else:
                 print(f"Failed to create test station: {response.status_code}")
-                return False
+                try:
+                    error_data = response.json()
+                    print(f"Error: {error_data.get('detail', 'Unknown error')}")
+                except:
+                    print(f"Response: {response.text[:200]}")
+                return None
                 
         except requests.exceptions.RequestException as e:
             print(f"Station creation request failed: {str(e)}")
-            return False
+            return None
 
     def test_invalid_token_scenarios(self):
         """Test various invalid token scenarios"""
