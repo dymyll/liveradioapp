@@ -1063,7 +1063,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 9999;  /* Much higher z-index to appear above everything */
   padding: 2rem;
   overflow-y: auto;
 }
@@ -1080,6 +1080,7 @@ body {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   margin: auto;
   position: relative;
+  z-index: 10000;  /* Even higher z-index for the modal itself */
 }
 
 .auth-modal-header {
