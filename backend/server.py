@@ -413,15 +413,11 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 # Enhanced Search Endpoint
 @api_router.post("/search")
-async def search_platform(search_data: SearchQuery, current_user: Optional[User] = None):
+async def search_platform(query: str, search_type: str = "all"):
     """Advanced search across stations, DJs, and artists"""
-    # Make current_user optional for public search
-    try:
-        current_user = None  # Allow unauthenticated search
-    except:
-        pass
-    query = search_data.query.lower().strip()
-    search_type = search_data.search_type
+    current_user = None  # Allow unauthenticated search
+    
+    query = query.lower().strip()
     
     if not query:
         return {"stations": [], "total": 0, "query": query}
