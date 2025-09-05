@@ -1067,6 +1067,7 @@ function StationPage() {
         {currentTab === 'listen' && <StationListen />}
         {currentTab === 'upload' && <StationUpload />}
         {currentTab === 'manage' && isOwner && <StationManage />}
+        {currentTab === 'requests' && isOwner && <StationRequests />}
       </main>
     </div>
   );
