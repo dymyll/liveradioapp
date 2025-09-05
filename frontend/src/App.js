@@ -1046,12 +1046,20 @@ function StationPage() {
           📤 Add Music
         </button>
         {isOwner && (
-          <button 
-            className={currentTab === 'manage' ? 'active' : ''}
-            onClick={() => setCurrentTab('manage')}
-          >
-            🎙️ Manage Station
-          </button>
+          <>
+            <button 
+              className={currentTab === 'manage' ? 'active' : ''}
+              onClick={() => setCurrentTab('manage')}
+            >
+              🎙️ Manage Station
+            </button>
+            <button 
+              className={currentTab === 'requests' ? 'active' : ''}
+              onClick={() => setCurrentTab('requests')}
+            >
+              📋 Requested Music
+            </button>
+          </>
         )}
       </nav>
 
