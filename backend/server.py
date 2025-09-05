@@ -168,6 +168,17 @@ def serialize_doc(doc):
         doc.pop("_id")
     return doc
 
+def serialize_for_json(obj):
+    """Convert objects to JSON serializable format"""
+    if isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_for_json(item) for item in obj]
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    else:
+        return obj
+
 # API Routes
 
 # User Management
