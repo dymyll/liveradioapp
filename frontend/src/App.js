@@ -419,10 +419,8 @@ function AuthModal({ isLogin, onClose, onSwitch }) {
 }
 
 // Platform Header
-function PlatformHeader() {
+function PlatformHeader({ onShowAuth }) {
   const { state, logout } = useRadio();
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [isLogin, setIsLogin] = useState(true);
   
   return (
     <header className="platform-header">
@@ -450,19 +448,13 @@ function PlatformHeader() {
           ) : (
             <div className="auth-buttons">
               <button 
-                onClick={() => {
-                  setIsLogin(true);
-                  setShowAuthModal(true);
-                }}
+                onClick={() => onShowAuth(true)}
                 className="auth-btn login-btn"
               >
                 Sign In
               </button>
               <button 
-                onClick={() => {
-                  setIsLogin(false);
-                  setShowAuthModal(true);
-                }}
+                onClick={() => onShowAuth(false)}
                 className="auth-btn register-btn"
               >
                 Join Platform
@@ -471,14 +463,6 @@ function PlatformHeader() {
           )}
         </div>
       </div>
-      
-      {showAuthModal && (
-        <AuthModal
-          isLogin={isLogin}
-          onClose={() => setShowAuthModal(false)}
-          onSwitch={() => setIsLogin(!isLogin)}
-        />
-      )}
     </header>
   );
 }
