@@ -6,6 +6,399 @@ from datetime import datetime, timezone
 import io
 import os
 
+class AuthenticationTester:
+    def __init__(self, base_url="https://sonic-pulse-4.preview.emergentagent.com"):
+        self.base_url = base_url
+        self.api_url = f"{base_url}/api"
+        self.tests_run = 0
+        self.tests_passed = 0
+        self.test_results = []
+        self.auth_token = None
+        self.test_user_data = None
+
+    def log_test(self, name, success, details=""):
+        """Log test results"""
+        self.tests_run += 1
+        if success:
+            self.tests_passed += 1
+            status = "✅ PASSED"
+        else:
+            status = "❌ FAILED"
+        
+        result = f"{status} - {name}"
+        if details:
+            result += f" | {details}"
+        
+        print(result)
+        self.test_results.append({
+            'name': name,
+            'success': success,
+            'details': details
+        })
+        return success
+
+    def test_user_registration(self):
+        """Test user registration endpoint"""
+        print("\n🔐 Testing User Registration...")
+        
+        # Generate unique test user data
+        timestamp = int(time.time())
+        self.test_user_data = {
+            "username": f"testuser_{timestamp}",
+            "email": f"testuser_{timestamp}@radiotest.com",
+            "password": "SecureTestPass123!",
+            "role": "artist"
+        }
+        
+        try:
+            url = f"{self.api_url}/auth/register"
+            headers = {'Content-Type': 'application/json'}
+            
+            response = requests.post(url, json=self.test_user_data, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                
+                # Verify response structure
+                required_fields = ['access_token', 'token_type', 'user']
+                missing_fields = [field for field in required_fields if field not in response_data]
+                
+                if missing_fields:
+                    return self.log_test(
+                        "User Registration", False, 
+                        f"Missing fields in response: {missing_fields}"
+                    )
+                
+                # Store token for subsequent tests
+                self.auth_token = response_data['access_token']
+                
+                # Verify user data in response
+                user_data = response_data['user']
+                if (user_data['username'] == self.test_user_data['username'] and 
+                    user_data['email'] == self.test_user_data['email'] and
+                    user_data['role'] == self.test_user_data['role']):
+                    
+                    return self.log_test(
+                        "User Registration", True, 
+                        f"User created successfully with token: {self.auth_token[:20]}..."
+                    )
+                else:
+                    return self.log_test(
+                        "User Registration", False, 
+                        "User data mismatch in response"
+                    )
+            else:
+                try:
+                    error_data = response.json()
+                    return self.log_test(
+                        "User Registration", False, 
+                        f"Status: {response.status_code} | Error: {error_data.get('detail', 'Unknown error')}"
+                    )
+                except:
+                    return self.log_test(
+                        "User Registration", False, 
+                        f"Status: {response.status_code} | Response: {response.text[:100]}"
+                    )
+                    
+        except requests.exceptions.RequestException as e:
+            return self.log_test("User Registration", False, f"Request failed: {str(e)}")
+
+    def test_user_login(self):
+        """Test user login endpoint"""
+        print("\n🔑 Testing User Login...")
+        
+        if not self.test_user_data:
+            return self.log_test("User Login", False, "No test user data available")
+        
+        login_data = {
+            "username": self.test_user_data['username'],
+            "password": self.test_user_data['password']
+        }
+        
+        try:
+            url = f"{self.api_url}/auth/login"
+            headers = {'Content-Type': 'application/json'}
+            
+            response = requests.post(url, json=login_data, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                
+                # Verify response structure
+                required_fields = ['access_token', 'token_type', 'user']
+                missing_fields = [field for field in required_fields if field not in response_data]
+                
+                if missing_fields:
+                    return self.log_test(
+                        "User Login", False, 
+                        f"Missing fields in response: {missing_fields}"
+                    )
+                
+                # Update token (should be same or new)
+                login_token = response_data['access_token']
+                
+                # Verify user data
+                user_data = response_data['user']
+                if (user_data['username'] == self.test_user_data['username'] and 
+                    user_data['email'] == self.test_user_data['email']):
+                    
+                    return self.log_test(
+                        "User Login", True, 
+                        f"Login successful with token: {login_token[:20]}..."
+                    )
+                else:
+                    return self.log_test(
+                        "User Login", False, 
+                        "User data mismatch in login response"
+                    )
+            else:
+                try:
+                    error_data = response.json()
+                    return self.log_test(
+                        "User Login", False, 
+                        f"Status: {response.status_code} | Error: {error_data.get('detail', 'Unknown error')}"
+                    )
+                except:
+                    return self.log_test(
+                        "User Login", False, 
+                        f"Status: {response.status_code} | Response: {response.text[:100]}"
+                    )
+                    
+        except requests.exceptions.RequestException as e:
+            return self.log_test("User Login", False, f"Request failed: {str(e)}")
+
+    def test_auth_token_verification(self):
+        """Test auth token verification with /auth/me endpoint"""
+        print("\n🎫 Testing Auth Token Verification...")
+        
+        if not self.auth_token:
+            return self.log_test("Auth Token Verification", False, "No auth token available")
+        
+        try:
+            url = f"{self.api_url}/auth/me"
+            headers = {
+                'Authorization': f'Bearer {self.auth_token}',
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                
+                # Verify user data matches what we expect
+                if (response_data['username'] == self.test_user_data['username'] and 
+                    response_data['email'] == self.test_user_data['email'] and
+                    response_data['role'] == self.test_user_data['role']):
+                    
+                    return self.log_test(
+                        "Auth Token Verification", True, 
+                        f"Token valid, user: {response_data['username']}"
+                    )
+                else:
+                    return self.log_test(
+                        "Auth Token Verification", False, 
+                        "User data mismatch in /auth/me response"
+                    )
+            elif response.status_code == 401:
+                return self.log_test(
+                    "Auth Token Verification", False, 
+                    "Token rejected - 401 Unauthorized"
+                )
+            else:
+                try:
+                    error_data = response.json()
+                    return self.log_test(
+                        "Auth Token Verification", False, 
+                        f"Status: {response.status_code} | Error: {error_data.get('detail', 'Unknown error')}"
+                    )
+                except:
+                    return self.log_test(
+                        "Auth Token Verification", False, 
+                        f"Status: {response.status_code} | Response: {response.text[:100]}"
+                    )
+                    
+        except requests.exceptions.RequestException as e:
+            return self.log_test("Auth Token Verification", False, f"Request failed: {str(e)}")
+
+    def test_upload_endpoint_access(self):
+        """Test authenticated access to upload endpoint"""
+        print("\n📤 Testing Upload Endpoint Access...")
+        
+        if not self.auth_token:
+            return self.log_test("Upload Endpoint Access", False, "No auth token available")
+        
+        # First, create a test station to upload to
+        station_created = self.create_test_station()
+        if not station_created:
+            return self.log_test("Upload Endpoint Access", False, "Failed to create test station")
+        
+        try:
+            # Create dummy files for upload
+            audio_content = b"FAKE_AUDIO_DATA_FOR_TESTING" * 1000
+            audio_file = io.BytesIO(audio_content)
+            
+            image_content = b"FAKE_IMAGE_DATA_FOR_TESTING" * 100
+            image_file = io.BytesIO(image_content)
+            
+            # Prepare form data
+            form_data = {
+                'title': f'Auth Test Song {int(time.time())}',
+                'artist_name': 'Auth Test Artist',
+                'genre': 'Test Genre'
+            }
+            
+            files = {
+                'audio_file': ('auth_test_song.mp3', audio_file, 'audio/mpeg'),
+                'artwork_file': ('auth_test_artwork.jpg', image_file, 'image/jpeg')
+            }
+            
+            url = f"{self.api_url}/stations/{self.test_station_slug}/songs/upload"
+            headers = {
+                'Authorization': f'Bearer {self.auth_token}'
+            }
+            
+            response = requests.post(url, data=form_data, files=files, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                if 'id' in response_data:
+                    return self.log_test(
+                        "Upload Endpoint Access", True, 
+                        f"Upload successful, song ID: {response_data['id']}"
+                    )
+                else:
+                    return self.log_test(
+                        "Upload Endpoint Access", False, 
+                        "Upload response missing song ID"
+                    )
+            elif response.status_code == 401:
+                return self.log_test(
+                    "Upload Endpoint Access", False, 
+                    "Upload rejected - 401 Unauthorized (token issue)"
+                )
+            elif response.status_code == 403:
+                return self.log_test(
+                    "Upload Endpoint Access", False, 
+                    "Upload rejected - 403 Forbidden (permission issue)"
+                )
+            else:
+                try:
+                    error_data = response.json()
+                    return self.log_test(
+                        "Upload Endpoint Access", False, 
+                        f"Status: {response.status_code} | Error: {error_data.get('detail', 'Unknown error')}"
+                    )
+                except:
+                    return self.log_test(
+                        "Upload Endpoint Access", False, 
+                        f"Status: {response.status_code} | Response: {response.text[:100]}"
+                    )
+                    
+        except requests.exceptions.RequestException as e:
+            return self.log_test("Upload Endpoint Access", False, f"Request failed: {str(e)}")
+
+    def create_test_station(self):
+        """Create a test station for upload testing"""
+        if not self.auth_token:
+            return False
+        
+        station_data = {
+            "name": f"Auth Test Station {int(time.time())}",
+            "description": "Test station for authentication testing",
+            "genre": "Test"
+        }
+        
+        try:
+            url = f"{self.api_url}/stations"
+            headers = {
+                'Authorization': f'Bearer {self.auth_token}',
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.post(url, json=station_data, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                self.test_station_slug = response_data.get('slug')
+                return bool(self.test_station_slug)
+            else:
+                print(f"Failed to create test station: {response.status_code}")
+                return False
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Station creation request failed: {str(e)}")
+            return False
+
+    def test_invalid_token_scenarios(self):
+        """Test various invalid token scenarios"""
+        print("\n🚫 Testing Invalid Token Scenarios...")
+        
+        # Test with no token
+        try:
+            url = f"{self.api_url}/auth/me"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 401:
+                self.log_test("No Token Test", True, "Correctly rejected request without token")
+            else:
+                self.log_test("No Token Test", False, f"Expected 401, got {response.status_code}")
+        except:
+            self.log_test("No Token Test", False, "Request failed")
+        
+        # Test with invalid token
+        try:
+            url = f"{self.api_url}/auth/me"
+            headers = {'Authorization': 'Bearer invalid_token_12345'}
+            response = requests.get(url, headers=headers, timeout=10)
+            
+            if response.status_code == 401:
+                self.log_test("Invalid Token Test", True, "Correctly rejected invalid token")
+            else:
+                self.log_test("Invalid Token Test", False, f"Expected 401, got {response.status_code}")
+        except:
+            self.log_test("Invalid Token Test", False, "Request failed")
+
+    def run_authentication_tests(self):
+        """Run all authentication tests"""
+        print("🔐 Starting Authentication System Tests...")
+        print(f"Testing against: {self.base_url}")
+        
+        try:
+            # Test user registration
+            self.test_user_registration()
+            
+            # Test user login
+            self.test_user_login()
+            
+            # Test auth token verification
+            self.test_auth_token_verification()
+            
+            # Test upload endpoint access
+            self.test_upload_endpoint_access()
+            
+            # Test invalid token scenarios
+            self.test_invalid_token_scenarios()
+            
+        except Exception as e:
+            print(f"❌ Authentication test suite failed with error: {str(e)}")
+        
+        # Print summary
+        print(f"\n📊 Authentication Test Results Summary:")
+        print(f"Tests Run: {self.tests_run}")
+        print(f"Tests Passed: {self.tests_passed}")
+        print(f"Tests Failed: {self.tests_run - self.tests_passed}")
+        print(f"Success Rate: {(self.tests_passed/self.tests_run)*100:.1f}%")
+        
+        # Print failed tests
+        failed_tests = [test for test in self.test_results if not test['success']]
+        if failed_tests:
+            print(f"\n❌ Failed Tests ({len(failed_tests)}):")
+            for test in failed_tests:
+                print(f"  - {test['name']}: {test['details']}")
+        
+        return self.tests_passed == self.tests_run
+
 class IndieRadioAPITester:
     def __init__(self, base_url="https://sonic-pulse-4.preview.emergentagent.com"):
         self.base_url = base_url
