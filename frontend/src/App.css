@@ -1916,14 +1916,67 @@ body {
   }
 }
 
-.error-message {
+.error-message-detailed {
   background: #fee2e2;
   border: 1px solid #fecaca;
   color: #dc2626;
-  padding: 0.75rem;
+  padding: 1rem;
   border-radius: 8px;
   margin-bottom: 1rem;
-  text-align: center;
+  text-align: left;
+}
+
+.error-message-detailed strong {
+  font-weight: 600;
+}
+
+.error-input {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3) !important;
+}
+
+.input-helper {
+  color: #666;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+  display: block;
+}
+
+.form-help {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 8px;
+  color: #1e40af;
+}
+
+.form-help p {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.form-help p:first-child {
+  margin-top: 0;
+}
+
+.form-help p:last-child {
+  margin-bottom: 0;
+}
+
+.create-station-unauthorized p {
+  margin: 0.5rem 0;
+}
+
+.create-btn:disabled {
+  background: #a0aec0;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.create-btn:disabled:hover {
+  background: #a0aec0;
+  transform: none;
 }
 
 /* Footer */
