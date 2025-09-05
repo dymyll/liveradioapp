@@ -19,8 +19,8 @@ body {
   flex-direction: column;
 }
 
-/* Header */
-.header {
+/* Platform Header */
+.platform-header {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
@@ -28,6 +28,549 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
+}
+
+.platform-header .logo a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.create-station-btn {
+  background: #10b981;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.create-station-btn:hover {
+  background: #059669;
+  transform: translateY(-1px);
+}
+
+/* Station Discovery */
+.station-discovery {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.discovery-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.discovery-header h1 {
+  color: #5a67d8;
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.discovery-header p {
+  color: #666;
+  font-size: 1.2rem;
+  margin-bottom: 2rem;
+}
+
+.discovery-filters {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.stations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+.station-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.station-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  border-color: #5a67d8;
+}
+
+.station-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.station-info h3 {
+  font-size: 1.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.station-info h3 a {
+  color: #5a67d8;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.station-info h3 a:hover {
+  color: #4c51bf;
+}
+
+.station-owner {
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.genre-badge {
+  background: #e2e8f0;
+  color: #5a67d8;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.station-description {
+  color: #666;
+  margin: 1rem 0;
+  line-height: 1.5;
+}
+
+.station-stats {
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.station-actions {
+  margin-top: 1.5rem;
+}
+
+.listen-btn {
+  background: #5a67d8;
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  text-decoration: none;
+  font-weight: 600;
+  display: inline-block;
+  transition: all 0.3s ease;
+}
+
+.listen-btn:hover {
+  background: #4c51bf;
+  transform: translateY(-2px);
+}
+
+.no-stations {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: #666;
+}
+
+/* Create Station Page */
+.create-station-page {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.create-station-form {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.create-station-unauthorized {
+  text-align: center;
+  padding: 4rem 2rem;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.create-station-unauthorized h2 {
+  color: #ef4444;
+  margin-bottom: 1rem;
+}
+
+.back-home-btn {
+  background: #5a67d8;
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  text-decoration: none;
+  display: inline-block;
+  margin-top: 1rem;
+  transition: all 0.3s ease;
+}
+
+.back-home-btn:hover {
+  background: #4c51bf;
+}
+
+.create-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+}
+
+.create-btn:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-2px);
+}
+
+.create-btn:disabled {
+  background: #a0aec0;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Station Page */
+.station-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.loading-station {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 50vh;
+  color: #666;
+}
+
+.station-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.station-header h1 {
+  color: #5a67d8;
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.station-meta {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.listeners-count,
+.followers-count {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.station-nav {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 15px;
+  padding: 1rem;
+  margin-bottom: 2rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.station-nav button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.station-nav button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.station-nav button.active {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.station-content {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* Station Listen Tab */
+.station-listen {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.station-music-library h2 {
+  color: #5a67d8;
+  margin-bottom: 1rem;
+}
+
+.songs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.no-songs {
+  text-align: center;
+  padding: 3rem;
+  color: #666;
+}
+
+/* Station Upload Tab */
+.station-upload {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.upload-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.upload-header h2 {
+  color: #5a67d8;
+  margin-bottom: 0.5rem;
+}
+
+/* Station Management Tab */
+.station-manage {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.manage-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.manage-header h2 {
+  color: #5a67d8;
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.live-stream-controls,
+.station-music-controls {
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 15px;
+  padding: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.live-stream-controls h3,
+.station-music-controls h3 {
+  color: #5a67d8;
+  margin-bottom: 1rem;
+  font-size: 1.3rem;
+}
+
+.start-stream-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 500px;
+}
+
+.live-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.live-status {
+  text-align: center;
+}
+
+.live-status p {
+  margin-top: 0.5rem;
+  color: #666;
+}
+
+.dj-song-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.dj-song-card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  transition: all 0.3s ease;
+}
+
+.dj-song-card:hover {
+  border-color: #5a67d8;
+  transform: translateY(-2px);
+}
+
+.song-artwork-small {
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.dj-song-info {
+  flex: 1;
+}
+
+.dj-song-info h4 {
+  margin-bottom: 0.25rem;
+  color: #333;
+}
+
+.dj-song-info p {
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+}
+
+.dj-play-btn {
+  background: #8b5cf6;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.dj-play-btn:hover:not(:disabled) {
+  background: #7c3aed;
+}
+
+.dj-play-btn:disabled {
+  background: #a0aec0;
+  cursor: not-allowed;
+}
+
+/* Responsive Design for Multi-Station */
+@media (max-width: 768px) {
+  .stations-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .station-card {
+    padding: 1.5rem;
+  }
+  
+  .station-header {
+    flex-direction: column;
+    text-align: center;
+    gap: 1rem;
+  }
+  
+  .station-nav {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .station-nav button {
+    font-size: 0.9rem;
+  }
+  
+  .discovery-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .search-input {
+    width: 100%;
+  }
+  
+  .dj-song-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .dj-song-card {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .song-artwork-small {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .station-discovery,
+  .station-page,
+  .create-station-page {
+    padding: 1rem;
+  }
+  
+  .station-header h1 {
+    font-size: 1.5rem;
+  }
+  
+  .discovery-header h1 {
+    font-size: 2rem;
+  }
+  
+  .station-content,
+  .create-station-form,
+  .live-stream-controls,
+  .station-music-controls {
+    padding: 1rem;
+  }
 }
 
 .header-content {
