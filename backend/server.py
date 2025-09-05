@@ -834,7 +834,7 @@ async def unfollow_station(station_id: str, current_user: User = Depends(get_cur
 # Station-specific content endpoints
 @api_router.get("/stations/{station_slug}/songs")
 async def get_station_songs(station_slug: str, approved_only: bool = True):
-    """Get songs for a specific station"""
+    """Get songs for a specific station - public endpoint"""
     station = await db.stations.find_one({"slug": station_slug})
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
