@@ -443,6 +443,9 @@ function PlatformHeader({ onShowAuth }) {
                   Create Station
                 </Link>
               )}
+              <Link to="/my-submissions" className="submissions-btn">
+                📋 My Submissions
+              </Link>
               <button onClick={logout} className="logout-btn">Logout</button>
             </div>
           ) : (
