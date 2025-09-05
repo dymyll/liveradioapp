@@ -47,7 +47,7 @@ class AuthenticationTester:
             "username": f"testuser_{timestamp}",
             "email": f"testuser_{timestamp}@radiotest.com",
             "password": "SecureTestPass123!",
-            "role": "artist"
+            "role": "dj"
         }
         
         try:
