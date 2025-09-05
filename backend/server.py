@@ -979,6 +979,37 @@ async def get_station_song_requests(
     
     return result
 
+@api_router.get("/stations/{station_slug}/songs/{song_id}/download")
+async def download_song(
+    station_slug: str,
+    song_id: str,
+    current_user: User = Depends(get_station_owner)
+):
+    """Download a song file (station owner or admin only)"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    song = await db.songs.find_one({"id": song_id, "station_id": station["id"]})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    if not song.get("file_path"):
+        raise HTTPException(status_code=404, detail="Song file not found")
+    
+    # Build the full file path
+    file_path = ROOT_DIR / song["file_path"].lstrip("/")
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Song file not found on disk")
+    
+    # Return the file for download
+    return FileResponse(
+        path=str(file_path),
+        filename=f"{song['title']} - {song['artist_name']}.mp3",
+        media_type='audio/mpeg'
+    )
+
 @api_router.post("/stations/{station_slug}/songs/{song_id}/approve")
 async def approve_song(
     station_slug: str,
