@@ -337,6 +337,22 @@ async def get_current_dj_or_admin(current_user: User = Depends(get_current_user)
         )
     return current_user
 
+async def get_station_owner_by_slug(station_slug: str, current_user: User = Depends(get_current_user)):
+    """Verify user owns the station or is admin using station slug"""
+    if current_user.role == "admin":
+        return current_user
+    
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    if station["owner_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to manage this station"
+        )
+    return current_user
+
 async def get_station_owner(station_id: str, current_user: User = Depends(get_current_user)):
     """Verify user owns the station or is admin"""
     if current_user.role == "admin":
