@@ -195,7 +195,6 @@ class Schedule(BaseModel):
 
 # New models for approval system
 class SongApproval(BaseModel):
-    song_id: str
     action: str  # approve, decline
     reason: Optional[str] = None
 
