@@ -488,13 +488,25 @@ function StationDiscovery() {
   const { state, loadAllStations } = useRadio();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchType, setSearchType] = useState('all');
+  const [selectedGenre, setSelectedGenre] = useState('');
+  const [availableGenres, setAvailableGenres] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showingResults, setShowingResults] = useState(false);
 
   useEffect(() => {
     loadAllStations();
+    loadAvailableGenres();
   }, []);
+
+  const loadAvailableGenres = async () => {
+    try {
+      const response = await axios.get(`${API}/genres`);
+      setAvailableGenres(response.data.genres);
+    } catch (error) {
+      console.error('Error loading genres:', error);
+    }
+  };
 
   // Real-time search with debouncing
   useEffect(() => {
@@ -508,17 +520,23 @@ function StationDiscovery() {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [searchQuery, searchType]);
+  }, [searchQuery, searchType, selectedGenre]);
 
   const performSearch = async () => {
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
     try {
-      const response = await axios.post(`${API}/search`, {
+      const searchParams = new URLSearchParams({
         query: searchQuery,
         search_type: searchType
       });
+      
+      if (selectedGenre && selectedGenre !== 'all') {
+        searchParams.append('genre', selectedGenre);
+      }
+
+      const response = await axios.post(`${API}/search?${searchParams.toString()}`);
       setSearchResults(response.data.stations);
       setShowingResults(true);
     } catch (error) {
@@ -534,6 +552,14 @@ function StationDiscovery() {
     if (searchQuery.trim()) {
       performSearch();
     }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSelectedGenre('');
+    setSearchType('all');
+    setShowingResults(false);
+    setSearchResults([]);
   };
 
   const stationsToDisplay = showingResults ? searchResults : state.allStations;
@@ -574,19 +600,36 @@ function StationDiscovery() {
                 <option value="djs">🎙️ DJs</option>
                 <option value="artists">🎤 Artists</option>
               </select>
+              
+              <select 
+                value={selectedGenre} 
+                onChange={(e) => setSelectedGenre(e.target.value)}
+                className="genre-filter"
+              >
+                <option value="">🎼 All Genres</option>
+                {availableGenres.map(genre => (
+                  <option key={genre} value={genre}>{genre}</option>
+                ))}
+              </select>
             </div>
           </div>
         </form>
         
         {showingResults && (
           <div className="search-results-info">
-            <p>Found {searchResults.length} results for "{searchQuery}"</p>
+            <div className="search-summary">
+              <p>
+                Found {searchResults.length} results for "<strong>{searchQuery}</strong>"
+                {selectedGenre && selectedGenre !== 'all' && (
+                  <span> in <strong>{selectedGenre}</strong></span>
+                )}
+                {searchType !== 'all' && (
+                  <span> ({searchType})</span>
+                )}
+              </p>
+            </div>
             <button 
-              onClick={() => {
-                setSearchQuery('');
-                setShowingResults(false);
-                setSearchResults([]);
-              }}
+              onClick={clearSearch}
               className="clear-search-btn"
             >
               ✕ Clear Search
@@ -606,7 +649,7 @@ function StationDiscovery() {
           <h3>{showingResults ? 'No stations found' : 'No stations available'}</h3>
           <p>
             {showingResults 
-              ? 'Try adjusting your search criteria' 
+              ? 'Try adjusting your search criteria or genre filter' 
               : 'Be the first to create a station!'
             }
           </p>
