@@ -722,9 +722,17 @@ class IndieRadioAPITester:
         return self.tests_passed == self.tests_run
 
 def main():
-    tester = IndieRadioAPITester()
-    success = tester.run_all_tests()
-    return 0 if success else 1
+    # Run authentication tests
+    auth_tester = AuthenticationTester()
+    auth_success = auth_tester.run_authentication_tests()
+    
+    print("\n" + "="*60)
+    
+    # Run general API tests
+    api_tester = IndieRadioAPITester()
+    api_success = api_tester.run_all_tests()
+    
+    return 0 if (auth_success and api_success) else 1
 
 if __name__ == "__main__":
     sys.exit(main())
