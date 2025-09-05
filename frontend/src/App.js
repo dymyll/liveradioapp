@@ -1618,6 +1618,7 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<StationDiscovery />} />
         <Route path="/create-station" element={<CreateStation />} />
+        <Route path="/my-submissions" element={<UserSubmissions />} />
         <Route path="/station/:stationSlug" element={<StationPage />} />
       </Routes>
 
