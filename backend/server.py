@@ -16,6 +16,7 @@ import asyncio
 import logging
 import jwt
 import hashlib
+import re
 from passlib.context import CryptContext
 
 # Configure logging
@@ -44,29 +45,31 @@ db = client[os.environ['DB_NAME']]
 UPLOAD_DIR = ROOT_DIR / "uploads"
 AUDIO_DIR = UPLOAD_DIR / "audio"
 ARTWORK_DIR = UPLOAD_DIR / "artwork"
+STATION_ARTWORK_DIR = UPLOAD_DIR / "stations"
 
-for directory in [UPLOAD_DIR, AUDIO_DIR, ARTWORK_DIR]:
+for directory in [UPLOAD_DIR, AUDIO_DIR, ARTWORK_DIR, STATION_ARTWORK_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 # Create the main app
-app = FastAPI(title="Radio Station API", version="1.0.0")
+app = FastAPI(title="Multi-Station Radio Platform API", version="2.0.0")
 
 # Create API router
 api_router = APIRouter(prefix="/api")
 
-# WebSocket connection manager
+# WebSocket connection manager for multi-station support
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-        self.connections_by_room: Dict[str, List[WebSocket]] = {}
-        self.dj_connections: Dict[str, WebSocket] = {}  # Track DJ connections
+        self.station_connections: Dict[str, List[WebSocket]] = {}  # station_id -> connections
+        self.dj_connections: Dict[str, WebSocket] = {}  # user_id -> websocket
 
-    async def connect(self, websocket: WebSocket, room: str = "general", user_id: str = None, role: str = "listener"):
+    async def connect(self, websocket: WebSocket, station_id: str = "platform", user_id: str = None, role: str = "listener"):
         await websocket.accept()
         self.active_connections.append(websocket)
-        if room not in self.connections_by_room:
-            self.connections_by_room[room] = []
-        self.connections_by_room[room].append(websocket)
+        
+        if station_id not in self.station_connections:
+            self.station_connections[station_id] = []
+        self.station_connections[station_id].append(websocket)
         
         # Track DJ connections separately
         if role in ["dj", "admin"] and user_id:
@@ -75,22 +78,17 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket, user_id: str = None):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-        for room_connections in self.connections_by_room.values():
-            if websocket in room_connections:
-                room_connections.remove(websocket)
+        for station_connections in self.station_connections.values():
+            if websocket in station_connections:
+                station_connections.remove(websocket)
         if user_id and user_id in self.dj_connections:
             del self.dj_connections[user_id]
 
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        try:
-            await websocket.send_text(message)
-        except:
-            self.disconnect(websocket)
-
-    async def broadcast_to_room(self, message: str, room: str):
-        if room in self.connections_by_room:
+    async def broadcast_to_station(self, message: str, station_id: str):
+        """Broadcast message to all connections in a specific station"""
+        if station_id in self.station_connections:
             disconnected = []
-            for connection in self.connections_by_room[room]:
+            for connection in self.station_connections[station_id]:
                 try:
                     await connection.send_text(message)
                 except:
@@ -99,20 +97,18 @@ class ConnectionManager:
             for conn in disconnected:
                 self.disconnect(conn)
 
-    async def broadcast_to_djs(self, message: str):
-        """Broadcast message only to connected DJs"""
-        disconnected = []
-        for user_id, websocket in self.dj_connections.items():
-            try:
-                await websocket.send_text(message)
-            except:
-                disconnected.append(user_id)
-        
-        for user_id in disconnected:
-            if user_id in self.dj_connections:
-                del self.dj_connections[user_id]
+    async def broadcast_to_platform(self, message: str):
+        """Broadcast to platform-wide room"""
+        await self.broadcast_to_station(message, "platform")
 
 manager = ConnectionManager()
+
+# Helper functions
+def create_station_slug(name: str) -> str:
+    """Create URL-friendly slug from station name"""
+    slug = re.sub(r'[^a-zA-Z0-9\s-]', '', name.lower())
+    slug = re.sub(r'[\s-]+', '-', slug)
+    return slug.strip('-')
 
 # Data Models
 class User(BaseModel):
@@ -122,34 +118,36 @@ class User(BaseModel):
     password_hash: str
     role: str = "listener"  # listener, artist, dj, admin
     is_active: bool = True
+    owned_stations: List[str] = []  # station_ids this user owns
+    followed_stations: List[str] = []  # station_ids this user follows
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class UserResponse(BaseModel):
-    id: str
-    username: str
-    email: str
-    role: str
-    is_active: bool
-    created_at: datetime
-
-class Artist(BaseModel):
+class Station(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-    bio: Optional[str] = None
-    email: str
-    social_links: Optional[Dict[str, str]] = {}
-    approved: bool = False
+    slug: str
+    description: Optional[str] = None
+    owner_id: str
+    owner_name: str
+    genre: Optional[str] = None
+    artwork_url: Optional[str] = None
+    is_active: bool = True
+    is_live: bool = False
+    current_listeners: int = 0
+    total_followers: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    settings: Dict[str, Any] = {}
 
 class Song(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
     artist_id: str
     artist_name: str
-    duration: Optional[int] = None  # in seconds
+    station_id: str  # Which station this song belongs to
+    duration: Optional[int] = None
     file_path: Optional[str] = None
     external_url: Optional[str] = None
-    source: str = "upload"  # upload, spotify, soundcloud
+    source: str = "upload"
     genre: Optional[str] = None
     artwork_url: Optional[str] = None
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -159,8 +157,9 @@ class Playlist(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     description: Optional[str] = None
-    created_by: str  # user_id
-    songs: List[str] = []  # song_ids
+    station_id: str  # Which station this playlist belongs to
+    created_by: str
+    songs: List[str] = []
     is_public: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -168,6 +167,7 @@ class Playlist(BaseModel):
 class Schedule(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
+    station_id: str  # Which station this schedule belongs to
     dj_id: str
     dj_name: str
     start_time: datetime
@@ -179,6 +179,7 @@ class Schedule(BaseModel):
 
 class LiveStream(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    station_id: str  # Which station this stream belongs to
     dj_id: str
     dj_name: str
     title: str
@@ -189,6 +190,26 @@ class LiveStream(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 # Request/Response Models
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    email: str
+    role: str
+    is_active: bool
+    owned_stations: List[str] = []
+    followed_stations: List[str] = []
+    created_at: datetime
+
+class StationCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    genre: Optional[str] = None
+
+class StationUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    genre: Optional[str] = None
+
 class UserCreate(BaseModel):
     username: str
     email: str
@@ -204,35 +225,7 @@ class Token(BaseModel):
     token_type: str
     user: UserResponse
 
-class ArtistSubmission(BaseModel):
-    name: str
-    bio: Optional[str] = None
-    email: str
-    social_links: Optional[Dict[str, str]] = {}
-
-class PlaylistCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    is_public: bool = True
-
-class ScheduleCreate(BaseModel):
-    title: str
-    dj_id: str
-    dj_name: str
-    start_time: datetime
-    end_time: datetime
-    playlist_id: Optional[str] = None
-    description: Optional[str] = None
-
-class LiveStreamCreate(BaseModel):
-    title: str
-    description: Optional[str] = None
-
-class DJControl(BaseModel):
-    action: str  # play, pause, next, previous, volume, seek
-    data: Optional[Dict[str, Any]] = {}
-
-# Auth functions
+# Auth functions (unchanged)
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
@@ -276,22 +269,35 @@ async def get_current_dj_or_admin(current_user: User = Depends(get_current_user)
         )
     return current_user
 
-# Helper functions
+async def get_station_owner(station_id: str, current_user: User = Depends(get_current_user)):
+    """Verify user owns the station or is admin"""
+    if current_user.role == "admin":
+        return current_user
+    
+    station = await db.stations.find_one({"id": station_id})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    if station["owner_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to manage this station"
+        )
+    return current_user
+
 def serialize_doc(doc):
     """Convert MongoDB document to JSON serializable format"""
     if doc and "_id" in doc:
         doc.pop("_id")
     return doc
 
-# Authentication endpoints
+# Authentication endpoints (unchanged)
 @api_router.post("/auth/register", response_model=Token)
 async def register(user: UserCreate):
-    # Check if user exists
     existing_user = await db.users.find_one({"$or": [{"username": user.username}, {"email": user.email}]})
     if existing_user:
         raise HTTPException(status_code=400, detail="Username or email already registered")
     
-    # Create user
     hashed_password = get_password_hash(user.password)
     user_doc = User(
         username=user.username,
@@ -301,7 +307,6 @@ async def register(user: UserCreate):
     )
     await db.users.insert_one(user_doc.dict())
     
-    # Create token
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
@@ -332,65 +337,171 @@ async def login(user_credentials: UserLogin):
 async def read_users_me(current_user: User = Depends(get_current_user)):
     return UserResponse(**current_user.dict())
 
-# User Management
-@api_router.post("/users", response_model=User)
-async def create_user(user: UserCreate, current_user: User = Depends(get_current_dj_or_admin)):
-    hashed_password = get_password_hash(user.password)
-    user_doc = User(
-        username=user.username,
-        email=user.email,
-        password_hash=hashed_password,
-        role=user.role
-    )
-    await db.users.insert_one(user_doc.dict())
-    return user_doc
-
-@api_router.get("/users", response_model=List[UserResponse])
-async def get_users(current_user: User = Depends(get_current_dj_or_admin)):
-    users = await db.users.find().to_list(100)
-    return [UserResponse(**serialize_doc(user)) for user in users]
-
-# Artist Management
-@api_router.post("/artists/submit")
-async def submit_artist(artist: ArtistSubmission):
-    artist_doc = Artist(**artist.dict())
-    await db.artists.insert_one(artist_doc.dict())
+# Station Management
+@api_router.post("/stations", response_model=Station)
+async def create_station(station_data: StationCreate, current_user: User = Depends(get_current_dj_or_admin)):
+    """Create a new radio station"""
+    slug = create_station_slug(station_data.name)
     
-    # Broadcast to DJs/Admins only
-    await manager.broadcast_to_djs(
+    # Check if slug already exists
+    existing_station = await db.stations.find_one({"slug": slug})
+    if existing_station:
+        # Add number suffix if slug exists
+        counter = 1
+        while existing_station:
+            new_slug = f"{slug}-{counter}"
+            existing_station = await db.stations.find_one({"slug": new_slug})
+            counter += 1
+        slug = new_slug
+    
+    station = Station(
+        name=station_data.name,
+        slug=slug,
+        description=station_data.description,
+        owner_id=current_user.id,
+        owner_name=current_user.username,
+        genre=station_data.genre
+    )
+    
+    await db.stations.insert_one(station.dict())
+    
+    # Add station to user's owned stations
+    await db.users.update_one(
+        {"id": current_user.id},
+        {"$addToSet": {"owned_stations": station.id}}
+    )
+    
+    # Broadcast new station creation
+    await manager.broadcast_to_platform(
         json.dumps({
-            "type": "artist_submission",
-            "artist": artist_doc.dict()
+            "type": "station_created",
+            "station": station.dict()
         })
     )
     
-    return {"message": "Artist submission received", "id": artist_doc.id}
+    return station
 
-@api_router.get("/artists", response_model=List[Artist])
-async def get_artists(approved_only: bool = False):
-    query = {"approved": True} if approved_only else {}
-    artists = await db.artists.find(query).to_list(100)
-    return [Artist(**serialize_doc(artist)) for artist in artists]
+@api_router.get("/stations", response_model=List[Station])
+async def get_all_stations():
+    """Get all active stations for discovery"""
+    stations = await db.stations.find({"is_active": True}).to_list(100)
+    
+    # Update listener counts and live status
+    for station in stations:
+        station_id = station["id"]
+        # Update current listeners count
+        station["current_listeners"] = len(manager.station_connections.get(station_id, []))
+        
+        # Check if station has active live stream
+        live_stream = await db.live_streams.find_one({"station_id": station_id, "is_active": True})
+        station["is_live"] = bool(live_stream)
+    
+    return [Station(**serialize_doc(station)) for station in stations]
 
-@api_router.put("/artists/{artist_id}/approve")
-async def approve_artist(artist_id: str, current_user: User = Depends(get_current_dj_or_admin)):
-    result = await db.artists.update_one(
-        {"id": artist_id},
-        {"$set": {"approved": True}}
+@api_router.get("/stations/{station_slug}", response_model=Station)
+async def get_station_by_slug(station_slug: str):
+    """Get station details by slug"""
+    station = await db.stations.find_one({"slug": station_slug, "is_active": True})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    # Update live status and listener count
+    station_id = station["id"]
+    station["current_listeners"] = len(manager.station_connections.get(station_id, []))
+    
+    live_stream = await db.live_streams.find_one({"station_id": station_id, "is_active": True})
+    station["is_live"] = bool(live_stream)
+    
+    return Station(**serialize_doc(station))
+
+@api_router.put("/stations/{station_id}")
+async def update_station(
+    station_id: str, 
+    station_data: StationUpdate, 
+    current_user: User = Depends(get_station_owner)
+):
+    """Update station details (owner only)"""
+    update_data = {k: v for k, v in station_data.dict().items() if v is not None}
+    
+    if "name" in update_data:
+        update_data["slug"] = create_station_slug(update_data["name"])
+    
+    result = await db.stations.update_one(
+        {"id": station_id},
+        {"$set": update_data}
     )
+    
     if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Artist not found")
-    return {"message": "Artist approved"}
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    return {"message": "Station updated successfully"}
 
-# Song Management
-@api_router.post("/songs/upload")
-async def upload_song(
+@api_router.post("/stations/{station_id}/follow")
+async def follow_station(station_id: str, current_user: User = Depends(get_current_user)):
+    """Follow a station"""
+    station = await db.stations.find_one({"id": station_id})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    # Add to user's followed stations
+    await db.users.update_one(
+        {"id": current_user.id},
+        {"$addToSet": {"followed_stations": station_id}}
+    )
+    
+    # Increment station followers count
+    await db.stations.update_one(
+        {"id": station_id},
+        {"$inc": {"total_followers": 1}}
+    )
+    
+    return {"message": "Station followed successfully"}
+
+@api_router.delete("/stations/{station_id}/follow")
+async def unfollow_station(station_id: str, current_user: User = Depends(get_current_user)):
+    """Unfollow a station"""
+    await db.users.update_one(
+        {"id": current_user.id},
+        {"$pull": {"followed_stations": station_id}}
+    )
+    
+    await db.stations.update_one(
+        {"id": station_id},
+        {"$inc": {"total_followers": -1}}
+    )
+    
+    return {"message": "Station unfollowed successfully"}
+
+# Station-specific content endpoints
+@api_router.get("/stations/{station_slug}/songs")
+async def get_station_songs(station_slug: str, approved_only: bool = True):
+    """Get songs for a specific station"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    query = {"station_id": station["id"]}
+    if approved_only:
+        query["approved"] = True
+    
+    songs = await db.songs.find(query).to_list(200)
+    return [Song(**serialize_doc(song)) for song in songs]
+
+@api_router.post("/stations/{station_slug}/songs/upload")
+async def upload_song_to_station(
+    station_slug: str,
     title: str = Form(...),
     artist_name: str = Form(...),
     genre: str = Form(None),
     audio_file: UploadFile = File(...),
-    artwork_file: UploadFile = File(None)
+    artwork_file: UploadFile = File(None),
+    current_user: User = Depends(get_current_user)
 ):
+    """Upload song to a specific station"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
     # Generate unique filename
     audio_filename = f"{uuid.uuid4()}_{audio_file.filename}"
     audio_path = AUDIO_DIR / audio_filename
@@ -413,8 +524,9 @@ async def upload_song(
     # Create song document
     song = Song(
         title=title,
-        artist_id="pending",
+        artist_id=current_user.id,
         artist_name=artist_name,
+        station_id=station["id"],
         file_path=f"/uploads/audio/{audio_filename}",
         genre=genre,
         artwork_url=artwork_url,
@@ -423,235 +535,109 @@ async def upload_song(
     
     await db.songs.insert_one(song.dict())
     
-    # Broadcast to DJs/Admins only
-    await manager.broadcast_to_djs(
+    # Broadcast to station
+    await manager.broadcast_to_station(
         json.dumps({
             "type": "song_upload",
+            "station_id": station["id"],
             "song": song.dict()
-        })
+        }),
+        station["id"]
     )
     
     return {"message": "Song uploaded successfully", "id": song.id}
 
-@api_router.get("/songs", response_model=List[Song])
-async def get_songs(approved_only: bool = False, genre: str = None):
-    query = {}
-    if approved_only:
-        query["approved"] = True
-    if genre:
-        query["genre"] = genre
+# Station Live Streaming
+@api_router.post("/stations/{station_slug}/live/start")
+async def start_station_live_stream(
+    station_slug: str,
+    stream_data: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Start live stream for a station"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
     
-    songs = await db.songs.find(query).to_list(200)
-    return [Song(**serialize_doc(song)) for song in songs]
-
-@api_router.get("/songs/{song_id}")
-async def get_song(song_id: str):
-    song = await db.songs.find_one({"id": song_id})
-    if not song:
-        raise HTTPException(status_code=404, detail="Song not found")
-    return Song(**serialize_doc(song))
-
-@api_router.put("/songs/{song_id}/approve")
-async def approve_song(song_id: str, current_user: User = Depends(get_current_dj_or_admin)):
-    result = await db.songs.update_one(
-        {"id": song_id},
-        {"$set": {"approved": True}}
-    )
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Song not found")
-    return {"message": "Song approved"}
-
-# Playlist Management
-@api_router.post("/playlists", response_model=Playlist)
-async def create_playlist(playlist: PlaylistCreate, current_user: User = Depends(get_current_user)):
-    playlist_doc = Playlist(**playlist.dict(), created_by=current_user.id)
-    await db.playlists.insert_one(playlist_doc.dict())
-    return playlist_doc
-
-@api_router.get("/playlists", response_model=List[Playlist])
-async def get_playlists():
-    playlists = await db.playlists.find({"is_public": True}).to_list(100)
-    return [Playlist(**serialize_doc(playlist)) for playlist in playlists]
-
-@api_router.get("/playlists/{playlist_id}")
-async def get_playlist_with_songs(playlist_id: str):
-    playlist = await db.playlists.find_one({"id": playlist_id})
-    if not playlist:
-        raise HTTPException(status_code=404, detail="Playlist not found")
+    # Check if user can broadcast on this station
+    if current_user.id != station["owner_id"] and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to broadcast on this station")
     
-    playlist = serialize_doc(playlist)
-    
-    # Get full song details
-    if playlist.get('songs'):
-        songs_data = await db.songs.find({"id": {"$in": playlist['songs']}}).to_list(100)
-        playlist['songs_details'] = [Song(**serialize_doc(song)) for song in songs_data]
-    
-    return playlist
-
-@api_router.post("/playlists/{playlist_id}/songs/{song_id}")
-async def add_song_to_playlist(playlist_id: str, song_id: str, current_user: User = Depends(get_current_dj_or_admin)):
-    # Check if song exists
-    song = await db.songs.find_one({"id": song_id})
-    if not song:
-        raise HTTPException(status_code=404, detail="Song not found")
-    
-    # Update playlist
-    result = await db.playlists.update_one(
-        {"id": playlist_id},
-        {
-            "$addToSet": {"songs": song_id},
-            "$set": {"updated_at": datetime.now(timezone.utc)}
-        }
-    )
-    
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Playlist not found")
-    
-    # Broadcast playlist update to all users
-    await manager.broadcast_to_room(
-        json.dumps({
-            "type": "playlist_update",
-            "playlist_id": playlist_id,
-            "action": "song_added",
-            "song_id": song_id
-        }),
-        "general"
-    )
-    
-    return {"message": "Song added to playlist"}
-
-# Schedule Management (DJ/Admin only)
-@api_router.post("/schedule", response_model=Schedule)
-async def create_schedule(schedule: ScheduleCreate, current_user: User = Depends(get_current_dj_or_admin)):
-    schedule_doc = Schedule(**schedule.dict())
-    await db.schedule.insert_one(schedule_doc.dict())
-    
-    # Broadcast schedule update to all users
-    await manager.broadcast_to_room(
-        json.dumps({
-            "type": "schedule_update",
-            "schedule": schedule_doc.dict()
-        }),
-        "general"
-    )
-    
-    return schedule_doc
-
-@api_router.get("/schedule", response_model=List[Schedule])
-async def get_schedule():
-    schedules = await db.schedule.find().sort("start_time", 1).to_list(100)
-    return [Schedule(**serialize_doc(schedule)) for schedule in schedules]
-
-@api_router.get("/schedule/now")
-async def get_current_show():
-    now = datetime.now(timezone.utc)
-    current_show = await db.schedule.find_one({
-        "start_time": {"$lte": now},
-        "end_time": {"$gte": now}
-    })
-    
-    if current_show:
-        return Schedule(**serialize_doc(current_show))
-    return {"message": "No live show currently"}
-
-# Live Streaming (DJ/Admin only)
-@api_router.post("/live/start", response_model=LiveStream)
-async def start_live_stream(stream_data: LiveStreamCreate, current_user: User = Depends(get_current_dj_or_admin)):
-    # End any existing live streams by this DJ
+    # End any existing live streams for this station
     await db.live_streams.update_many(
-        {"dj_id": current_user.id},
+        {"station_id": station["id"]},
         {"$set": {"is_active": False}}
     )
     
     # Create new live stream
     live_stream = LiveStream(
+        station_id=station["id"],
         dj_id=current_user.id,
         dj_name=current_user.username,
-        title=stream_data.title,
-        description=stream_data.description
+        title=stream_data.get("title", "Live Stream"),
+        description=stream_data.get("description")
     )
     
     await db.live_streams.insert_one(live_stream.dict())
     
-    # Update schedule to mark as live
-    now = datetime.now(timezone.utc)
-    await db.schedule.update_one(
-        {
-            "dj_id": current_user.id,
-            "start_time": {"$lte": now},
-            "end_time": {"$gte": now}
-        },
+    # Update station live status
+    await db.stations.update_one(
+        {"id": station["id"]},
         {"$set": {"is_live": True}}
     )
     
-    # Broadcast live status to all users
-    await manager.broadcast_to_room(
+    # Broadcast to station listeners
+    await manager.broadcast_to_station(
         json.dumps({
             "type": "live_stream_started",
-            "dj_id": current_user.id,
+            "station_id": station["id"],
+            "station_name": station["name"],
             "dj_name": current_user.username,
-            "stream_title": stream_data.title,
+            "stream_title": stream_data.get("title", "Live Stream"),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }),
-        "general"
+        station["id"]
     )
     
     return live_stream
 
-@api_router.post("/live/stop")
-async def stop_live_stream(current_user: User = Depends(get_current_dj_or_admin)):
+@api_router.post("/stations/{station_slug}/live/stop")
+async def stop_station_live_stream(
+    station_slug: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Stop live stream for a station"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
     # End live streams
     await db.live_streams.update_many(
-        {"dj_id": current_user.id},
+        {"station_id": station["id"], "dj_id": current_user.id},
         {"$set": {"is_active": False}}
     )
     
-    await db.schedule.update_many(
-        {"dj_id": current_user.id},
+    await db.stations.update_one(
+        {"id": station["id"]},
         {"$set": {"is_live": False}}
     )
     
-    # Broadcast live status to all users
-    await manager.broadcast_to_room(
+    # Broadcast to station
+    await manager.broadcast_to_station(
         json.dumps({
             "type": "live_stream_stopped",
-            "dj_id": current_user.id,
+            "station_id": station["id"],
             "dj_name": current_user.username,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }),
-        "general"
+        station["id"]
     )
     
     return {"message": "Live stream stopped"}
 
-@api_router.get("/live/status")
-async def get_live_status():
-    live_stream = await db.live_streams.find_one({"is_active": True})
-    if live_stream:
-        return LiveStream(**serialize_doc(live_stream))
-    return {"message": "No active live stream"}
-
-# DJ Controls (DJ/Admin only)
-@api_router.post("/dj/control")
-async def dj_control(control: DJControl, current_user: User = Depends(get_current_dj_or_admin)):
-    # Broadcast DJ control to all listeners
-    await manager.broadcast_to_room(
-        json.dumps({
-            "type": "dj_control",
-            "dj_id": current_user.id,
-            "dj_name": current_user.username,
-            "action": control.action,
-            "data": control.data,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }),
-        "general"
-    )
-    
-    return {"message": f"DJ control '{control.action}' broadcasted"}
-
-# WebSocket endpoint
-@api_router.websocket("/ws/{room}")
-async def websocket_endpoint(websocket: WebSocket, room: str, token: str = None):
+# WebSocket endpoint with station support
+@api_router.websocket("/ws/{station_slug}")
+async def websocket_endpoint(websocket: WebSocket, station_slug: str, token: str = None):
     user_id = None
     role = "listener"
     
@@ -668,7 +654,14 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str = None)
         except:
             pass
     
-    await manager.connect(websocket, room, user_id, role)
+    # Get station
+    if station_slug == "platform":
+        station_id = "platform"
+    else:
+        station = await db.stations.find_one({"slug": station_slug})
+        station_id = station["id"] if station else "platform"
+    
+    await manager.connect(websocket, station_id, user_id, role)
     try:
         while True:
             data = await websocket.receive_text()
@@ -676,29 +669,29 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str = None)
             
             # Handle different message types
             if message.get("type") == "chat_message":
-                # Echo message to all clients in room
-                await manager.broadcast_to_room(
+                await manager.broadcast_to_station(
                     json.dumps({
                         "type": "chat_message",
-                        "room": room,
+                        "station_id": station_id,
                         "message": message.get("message", ""),
                         "username": message.get("username", "Anonymous"),
                         "role": role,
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     }),
-                    room
+                    station_id
                 )
             elif message.get("type") == "dj_control" and role in ["dj", "admin"]:
                 # Only DJs/Admins can send control messages
-                await manager.broadcast_to_room(
+                await manager.broadcast_to_station(
                     json.dumps({
                         "type": "dj_control",
+                        "station_id": station_id,
                         "action": message.get("action"),
                         "data": message.get("data", {}),
                         "dj_name": message.get("username", "DJ"),
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     }),
-                    "general"
+                    station_id
                 )
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
