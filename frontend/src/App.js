@@ -1257,7 +1257,7 @@ function Notifications() {
 }
 
 // Main App Component
-function App() {
+function AppContent() {
   const [currentTab, setCurrentTab] = useState('listen');
   const { state } = useRadio();
   
@@ -1265,58 +1265,64 @@ function App() {
     (state.currentUser?.role === 'dj' || state.currentUser?.role === 'admin');
   
   return (
+    <div className="App">
+      <Header />
+      <Notifications />
+      
+      <nav className="main-nav">
+        <button 
+          className={currentTab === 'listen' ? 'active' : ''}
+          onClick={() => setCurrentTab('listen')}
+        >
+          🎵 Listen
+        </button>
+        <button 
+          className={currentTab === 'upload' ? 'active' : ''}
+          onClick={() => setCurrentTab('upload')}
+        >
+          📤 Upload Music
+        </button>
+        <button 
+          className={currentTab === 'submit' ? 'active' : ''}
+          onClick={() => setCurrentTab('submit')}
+        >
+          🎤 Submit Artist
+        </button>
+        {canAccessDJFeatures && (
+          <button 
+            className={currentTab === 'dj' ? 'active' : ''}
+            onClick={() => setCurrentTab('dj')}
+          >
+            🎙️ DJ Dashboard
+          </button>
+        )}
+      </nav>
+      
+      <main className="main-content">
+        {currentTab === 'listen' && (
+          <div className="listen-section">
+            <CurrentShowInfo />
+            <AudioPlayer />
+            <SongList />
+          </div>
+        )}
+        
+        {currentTab === 'upload' && <SongUploadForm />}
+        {currentTab === 'submit' && <ArtistSubmissionForm />}
+        {currentTab === 'dj' && canAccessDJFeatures && <DJDashboard />}
+      </main>
+      
+      <footer className="footer">
+        <p>🎵 Indie Music Station - Supporting Local Artists Since 2024</p>
+      </footer>
+    </div>
+  );
+}
+
+function App() {
+  return (
     <RadioProvider>
-      <div className="App">
-        <Header />
-        <Notifications />
-        
-        <nav className="main-nav">
-          <button 
-            className={currentTab === 'listen' ? 'active' : ''}
-            onClick={() => setCurrentTab('listen')}
-          >
-            🎵 Listen
-          </button>
-          <button 
-            className={currentTab === 'upload' ? 'active' : ''}
-            onClick={() => setCurrentTab('upload')}
-          >
-            📤 Upload Music
-          </button>
-          <button 
-            className={currentTab === 'submit' ? 'active' : ''}
-            onClick={() => setCurrentTab('submit')}
-          >
-            🎤 Submit Artist
-          </button>
-          {canAccessDJFeatures && (
-            <button 
-              className={currentTab === 'dj' ? 'active' : ''}
-              onClick={() => setCurrentTab('dj')}
-            >
-              🎙️ DJ Dashboard
-            </button>
-          )}
-        </nav>
-        
-        <main className="main-content">
-          {currentTab === 'listen' && (
-            <div className="listen-section">
-              <CurrentShowInfo />
-              <AudioPlayer />
-              <SongList />
-            </div>
-          )}
-          
-          {currentTab === 'upload' && <SongUploadForm />}
-          {currentTab === 'submit' && <ArtistSubmissionForm />}
-          {currentTab === 'dj' && canAccessDJFeatures && <DJDashboard />}
-        </main>
-        
-        <footer className="footer">
-          <p>🎵 Indie Music Station - Supporting Local Artists Since 2024</p>
-        </footer>
-      </div>
+      <AppContent />
     </RadioProvider>
   );
 }
