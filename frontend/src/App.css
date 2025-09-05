@@ -1879,7 +1879,7 @@ body {
   position: fixed;
   top: 100px;
   right: 2rem;
-  z-index: 1000;
+  z-index: 5000;  /* Lower than modal but higher than other content */
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
