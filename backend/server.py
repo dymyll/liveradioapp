@@ -162,6 +162,12 @@ class Song(BaseModel):
     artwork_url: Optional[str] = None
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     approved: bool = False
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[str] = None  # User ID who approved/declined
+    declined: bool = False
+    decline_reason: Optional[str] = None
+    declined_at: Optional[datetime] = None
+    status: str = "pending"  # pending, approved, declined
 
 class Playlist(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -186,6 +192,24 @@ class Schedule(BaseModel):
     is_live: bool = False
     description: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# New models for approval system
+class SongApproval(BaseModel):
+    action: str  # approve, decline
+    reason: Optional[str] = None
+
+class SongSubmissionStatus(BaseModel):
+    id: str
+    title: str
+    artist_name: str
+    station_name: str
+    station_slug: str
+    status: str  # pending, approved, declined
+    submitted_at: datetime
+    approved_at: Optional[datetime] = None
+    declined_at: Optional[datetime] = None
+    decline_reason: Optional[str] = None
+    artwork_url: Optional[str] = None
 
 class LiveStream(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -309,6 +333,22 @@ async def get_current_dj_or_admin(current_user: User = Depends(get_current_user)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions. DJ or Admin role required."
+        )
+    return current_user
+
+async def get_station_owner_by_slug(station_slug: str, current_user: User = Depends(get_current_user)):
+    """Verify user owns the station or is admin using station slug"""
+    if current_user.role == "admin":
+        return current_user
+    
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    if station["owner_id"] != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to manage this station"
         )
     return current_user
 
@@ -880,6 +920,17 @@ async def upload_song_to_station(
             await f.write(artwork_content)
         artwork_url = f"/uploads/artwork/{artwork_filename}"
     
+    # Determine approval status based on user role and station ownership
+    is_auto_approved = False
+    song_status = "pending"
+    
+    # Auto-approve if user is station owner or admin
+    if (current_user.role == "admin" or 
+        station["owner_id"] == current_user.id or 
+        current_user.role == "dj"):
+        is_auto_approved = True
+        song_status = "approved"
+    
     # Create song document
     song = Song(
         title=title,
@@ -889,22 +940,197 @@ async def upload_song_to_station(
         file_path=f"/uploads/audio/{audio_filename}",
         genre=genre,
         artwork_url=artwork_url,
-        source="upload"
+        source="upload",
+        approved=is_auto_approved,
+        status=song_status,
+        approved_at=datetime.now(timezone.utc) if is_auto_approved else None,
+        approved_by=current_user.id if is_auto_approved else None
     )
     
     await db.songs.insert_one(song.dict())
     
     # Broadcast to station
+    song_dict = song.dict()
+    # Convert datetime to ISO string for JSON serialization
+    if 'submitted_at' in song_dict and song_dict['submitted_at']:
+        song_dict['submitted_at'] = song_dict['submitted_at'].isoformat()
+    if 'approved_at' in song_dict and song_dict['approved_at']:
+        song_dict['approved_at'] = song_dict['approved_at'].isoformat()
+    
     await manager.broadcast_to_station(
         json.dumps({
             "type": "song_upload",
             "station_id": station["id"],
-            "song": song.dict()
+            "song": song_dict
         }),
         station["id"]
     )
     
-    return {"message": "Song uploaded successfully", "id": song.id}
+    return {"message": "Song uploaded successfully", "id": song.id, "status": song_status}
+
+# Song Approval Management
+@api_router.get("/stations/{station_slug}/songs/requests")
+async def get_station_song_requests(
+    station_slug: str,
+    current_user: User = Depends(get_station_owner_by_slug)
+):
+    """Get pending song requests for station (station owner or admin only)"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    # Get all pending songs for this station
+    pending_songs = await db.songs.find({
+        "station_id": station["id"],
+        "status": "pending"
+    }).to_list(100)
+    
+    result = []
+    for song_doc in pending_songs:
+        song = Song(**serialize_doc(song_doc))
+        # Convert datetime fields for JSON serialization
+        song_dict = song.dict()
+        if song_dict.get('submitted_at'):
+            song_dict['submitted_at'] = song_dict['submitted_at'].isoformat()
+        result.append(song_dict)
+    
+    return result
+
+@api_router.get("/stations/{station_slug}/songs/{song_id}/download")
+async def download_song(
+    station_slug: str,
+    song_id: str,
+    current_user: User = Depends(get_station_owner_by_slug)
+):
+    """Download a song file (station owner or admin only)"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    song = await db.songs.find_one({"id": song_id, "station_id": station["id"]})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    if not song.get("file_path"):
+        raise HTTPException(status_code=404, detail="Song file not found")
+    
+    # Build the full file path
+    file_path = ROOT_DIR / song["file_path"].lstrip("/")
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Song file not found on disk")
+    
+    # Return the file for download
+    return FileResponse(
+        path=str(file_path),
+        filename=f"{song['title']} - {song['artist_name']}.mp3",
+        media_type='audio/mpeg'
+    )
+
+@api_router.post("/stations/{station_slug}/songs/{song_id}/approve")
+async def approve_song(
+    station_slug: str,
+    song_id: str,
+    approval_data: SongApproval,
+    current_user: User = Depends(get_station_owner_by_slug)
+):
+    """Approve or decline a song request (station owner or admin only)"""
+    station = await db.stations.find_one({"slug": station_slug})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    song = await db.songs.find_one({"id": song_id, "station_id": station["id"]})
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    
+    if song["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Song is not pending approval")
+    
+    # Update song based on action
+    update_data = {
+        "approved_by": current_user.id
+    }
+    
+    if approval_data.action == "approve":
+        update_data.update({
+            "approved": True,
+            "status": "approved",
+            "approved_at": datetime.now(timezone.utc)
+        })
+        message = "Song approved successfully"
+    elif approval_data.action == "decline":
+        update_data.update({
+            "declined": True,
+            "status": "declined",
+            "declined_at": datetime.now(timezone.utc),
+            "decline_reason": approval_data.reason or "No reason provided"
+        })
+        message = "Song declined"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'approve' or 'decline'")
+    
+    # Update the song in database
+    await db.songs.update_one(
+        {"id": song_id},
+        {"$set": update_data}
+    )
+    
+    # Broadcast the decision to the station
+    await manager.broadcast_to_station(
+        json.dumps({
+            "type": "song_decision",
+            "station_id": station["id"],
+            "song_id": song_id,
+            "action": approval_data.action,
+            "reason": approval_data.reason
+        }),
+        station["id"]
+    )
+    
+    return {"message": message, "action": approval_data.action}
+
+@api_router.get("/user/submissions")
+async def get_user_submissions(current_user: User = Depends(get_current_user)):
+    """Get current user's song submissions across all stations"""
+    
+    # Get all songs submitted by this user
+    user_songs = await db.songs.find({"artist_id": current_user.id}).to_list(100)
+    
+    result = []
+    for song_doc in user_songs:
+        song = Song(**serialize_doc(song_doc))
+        
+        # Get station info
+        station = await db.stations.find_one({"id": song.station_id})
+        if not station:
+            continue
+            
+        submission = SongSubmissionStatus(
+            id=song.id,
+            title=song.title,
+            artist_name=song.artist_name,
+            station_name=station["name"],
+            station_slug=station["slug"],
+            status=song.status,
+            submitted_at=song.submitted_at,
+            approved_at=song.approved_at,
+            declined_at=song.declined_at,
+            decline_reason=song.decline_reason,
+            artwork_url=song.artwork_url
+        )
+        
+        # Convert datetime fields for JSON serialization
+        submission_dict = submission.dict()
+        if submission_dict.get('submitted_at'):
+            submission_dict['submitted_at'] = submission_dict['submitted_at'].isoformat()
+        if submission_dict.get('approved_at'):
+            submission_dict['approved_at'] = submission_dict['approved_at'].isoformat()
+        if submission_dict.get('declined_at'):
+            submission_dict['declined_at'] = submission_dict['declined_at'].isoformat()
+            
+        result.append(submission_dict)
+    
+    return result
 
 # Station Live Streaming
 @api_router.post("/stations/{station_slug}/live/start")

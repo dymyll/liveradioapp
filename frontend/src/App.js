@@ -443,6 +443,9 @@ function PlatformHeader({ onShowAuth }) {
                   Create Station
                 </Link>
               )}
+              <Link to="/my-submissions" className="submissions-btn">
+                📋 My Submissions
+              </Link>
               <button onClick={logout} className="logout-btn">Logout</button>
             </div>
           ) : (
@@ -1046,12 +1049,20 @@ function StationPage() {
           📤 Add Music
         </button>
         {isOwner && (
-          <button 
-            className={currentTab === 'manage' ? 'active' : ''}
-            onClick={() => setCurrentTab('manage')}
-          >
-            🎙️ Manage Station
-          </button>
+          <>
+            <button 
+              className={currentTab === 'manage' ? 'active' : ''}
+              onClick={() => setCurrentTab('manage')}
+            >
+              🎙️ Manage Station
+            </button>
+            <button 
+              className={currentTab === 'requests' ? 'active' : ''}
+              onClick={() => setCurrentTab('requests')}
+            >
+              📋 Requested Music
+            </button>
+          </>
         )}
       </nav>
 
@@ -1059,6 +1070,7 @@ function StationPage() {
         {currentTab === 'listen' && <StationListen />}
         {currentTab === 'upload' && <StationUpload />}
         {currentTab === 'manage' && isOwner && <StationManage />}
+        {currentTab === 'requests' && isOwner && <StationRequests />}
       </main>
     </div>
   );
@@ -1257,6 +1269,7 @@ function StationUpload() {
   const [artworkFile, setArtworkFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1277,12 +1290,13 @@ function StationUpload() {
     }
     
     try {
-      await axios.post(`${API}/stations/${stationSlug}/songs/upload`, uploadData, {
+      const response = await axios.post(`${API}/stations/${stationSlug}/songs/upload`, uploadData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
       setUploaded(true);
+      setUploadStatus(response.data.status);
       setFormData({ title: '', artist_name: '', genre: '' });
       setAudioFile(null);
       setArtworkFile(null);
@@ -1306,8 +1320,15 @@ function StationUpload() {
     return (
       <div className="upload-success">
         <h2>🎵 Upload Successful!</h2>
-        <p>Your song has been uploaded to {state.currentStation?.name} and is pending approval.</p>
-        <button onClick={() => setUploaded(false)} className="upload-another-btn">
+        {uploadStatus === 'approved' ? (
+          <p>Your song has been uploaded and added to {state.currentStation?.name} immediately!</p>
+        ) : (
+          <p>Your song has been uploaded to {state.currentStation?.name} and is pending approval from the station owner.</p>
+        )}
+        <button onClick={() => {
+          setUploaded(false);
+          setUploadStatus('');
+        }} className="upload-another-btn">
           Upload Another Song
         </button>
       </div>
@@ -1597,6 +1618,7 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<StationDiscovery />} />
         <Route path="/create-station" element={<CreateStation />} />
+        <Route path="/my-submissions" element={<UserSubmissions />} />
         <Route path="/station/:stationSlug" element={<StationPage />} />
       </Routes>
 
@@ -1612,6 +1634,121 @@ function AppContent() {
   );
 }
 
+// User Submissions Page
+function UserSubmissions() {
+  const { state } = useRadio();
+  const [submissions, setSubmissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (state.isAuthenticated) {
+      loadSubmissions();
+    }
+  }, [state.isAuthenticated]);
+
+  const loadSubmissions = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API}/user/submissions`);
+      setSubmissions(response.data);
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!state.isAuthenticated) {
+    return (
+      <div className="user-submissions">
+        <div className="please-login">
+          <h2>🔐 Please Sign In</h2>
+          <p>You need to be signed in to view your music submissions.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="user-submissions">
+        <div className="submissions-header">
+          <h2>📋 My Music Submissions</h2>
+          <p>Loading your submissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="user-submissions">
+      <div className="submissions-header">
+        <h2>📋 My Music Submissions</h2>
+        <p>Track the status of your music submissions across all stations</p>
+      </div>
+
+      {submissions.length === 0 ? (
+        <div className="no-submissions">
+          <p>🎵 You haven't submitted any music yet.</p>
+          <p>Visit a station and use the "Add Music" feature to submit your tracks!</p>
+        </div>
+      ) : (
+        <div className="submissions-grid">
+          {submissions.map((submission) => (
+            <div key={submission.id} className={`submission-card ${submission.status}`}>
+              <div className="submission-artwork">
+                {submission.artwork_url ? (
+                  <img src={`${BACKEND_URL}${submission.artwork_url}`} alt={submission.title} />
+                ) : (
+                  <div className="artwork-placeholder">🎵</div>
+                )}
+              </div>
+              
+              <div className="submission-info">
+                <h4>{submission.title}</h4>
+                <p className="artist-name">by {submission.artist_name}</p>
+                <p className="station-name">
+                  Station: <Link to={`/station/${submission.station_slug}`}>{submission.station_name}</Link>
+                </p>
+                <p className="submitted-date">
+                  Submitted: {new Date(submission.submitted_at).toLocaleDateString()}
+                </p>
+              </div>
+              
+              <div className="submission-status">
+                {submission.status === 'pending' && (
+                  <div className="status-badge pending">
+                    ⏳ Pending Review
+                  </div>
+                )}
+                {submission.status === 'approved' && (
+                  <div className="status-badge approved">
+                    ✅ Approved
+                    <small>Approved: {new Date(submission.approved_at).toLocaleDateString()}</small>
+                  </div>
+                )}
+                {submission.status === 'declined' && (
+                  <div className="status-badge declined">
+                    ❌ Declined
+                    <small>Declined: {new Date(submission.declined_at).toLocaleDateString()}</small>
+                  </div>
+                )}
+              </div>
+              
+              {submission.status === 'declined' && submission.decline_reason && (
+                <div className="decline-feedback">
+                  <h5>💬 Feedback from Station:</h5>
+                  <p>"{submission.decline_reason}"</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -1619,6 +1756,258 @@ function App() {
         <AppContent />
       </RadioProvider>
     </BrowserRouter>
+  );
+}
+
+// Station Requests Tab (for station owners to manage song requests)
+function StationRequests() {
+  const { stationSlug } = useParams();
+  const { state } = useRadio();
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [selectedSong, setSelectedSong] = useState(null);
+  const [declineReason, setDeclineReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+
+  const predefinedReasons = [
+    'Music not a good fit for station',
+    'Not radio friendly',
+    'Needs more work on the mix',
+    'Audio quality issues',
+    'Inappropriate content',
+    'Genre mismatch'
+  ];
+
+  useEffect(() => {
+    loadRequests();
+  }, [stationSlug]);
+
+  const loadRequests = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API}/stations/${stationSlug}/songs/requests`);
+      setRequests(response.data);
+    } catch (error) {
+      console.error('Error loading requests:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApprove = async (songId) => {
+    try {
+      await axios.post(`${API}/stations/${stationSlug}/songs/${songId}/approve`, {
+        song_id: songId,
+        action: 'approve'
+      });
+      
+      // Remove from requests list
+      setRequests(requests.filter(req => req.id !== songId));
+      alert('Song approved successfully!');
+    } catch (error) {
+      console.error('Error approving song:', error);
+      alert('Error approving song. Please try again.');
+    }
+  };
+
+  const handleDecline = (song) => {
+    setSelectedSong(song);
+    setShowDeclineModal(true);
+  };
+
+  const submitDecline = async () => {
+    try {
+      const reason = declineReason === 'custom' ? customReason : declineReason;
+      
+      await axios.post(`${API}/stations/${stationSlug}/songs/${selectedSong.id}/approve`, {
+        song_id: selectedSong.id,
+        action: 'decline',
+        reason: reason
+      });
+      
+      // Remove from requests list
+      setRequests(requests.filter(req => req.id !== selectedSong.id));
+      
+      // Reset modal state
+      setShowDeclineModal(false);
+      setSelectedSong(null);
+      setDeclineReason('');
+      setCustomReason('');
+      
+      alert('Song declined with feedback sent to artist.');
+    } catch (error) {
+      console.error('Error declining song:', error);
+      alert('Error declining song. Please try again.');
+    }
+  };
+
+  const handleDownload = async (songId, title, artistName) => {
+    try {
+      const response = await axios.get(`${API}/stations/${stationSlug}/songs/${songId}/download`, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${title} - ${artistName}.mp3`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading song:', error);
+      alert('Error downloading song. Please try again.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="station-requests">
+        <div className="requests-header">
+          <h2>📋 Requested Music</h2>
+          <p>Loading song requests...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="station-requests">
+      <div className="requests-header">
+        <h2>📋 Requested Music for {state.currentStation?.name}</h2>
+        <p>Review and manage music submissions from artists and listeners</p>
+      </div>
+
+      {requests.length === 0 ? (
+        <div className="no-requests">
+          <p>🎵 No pending music requests at this time.</p>
+          <p>Artists and listeners can submit music through the "Add Music" section.</p>
+        </div>
+      ) : (
+        <div className="requests-grid">
+          {requests.map((song) => (
+            <div key={song.id} className="request-card">
+              <div className="request-artwork">
+                {song.artwork_url ? (
+                  <img src={`${BACKEND_URL}${song.artwork_url}`} alt={song.title} />
+                ) : (
+                  <div className="artwork-placeholder">🎵</div>
+                )}
+              </div>
+              
+              <div className="request-info">
+                <h4>{song.title}</h4>
+                <p className="artist-name">by {song.artist_name}</p>
+                <p className="genre">{song.genre || 'No genre'}</p>
+                <p className="submitted-date">
+                  Submitted: {new Date(song.submitted_at).toLocaleDateString()}
+                </p>
+              </div>
+              
+              <div className="request-actions">
+                <button 
+                  onClick={() => handleApprove(song.id)}
+                  className="approve-btn"
+                  title="Approve and add to station"
+                >
+                  ✅ Approve
+                </button>
+                <button 
+                  onClick={() => handleDecline(song)}
+                  className="decline-btn"
+                  title="Decline with feedback"
+                >
+                  ❌ Decline
+                </button>
+                <button 
+                  onClick={() => handleDownload(song.id, song.title, song.artist_name)}
+                  className="download-btn"
+                  title="Download song file"
+                >
+                  ⬇️ Download
+                </button>
+              </div>
+              
+              {song.file_path && (
+                <div className="request-preview">
+                  <audio controls preload="none">
+                    <source src={`${BACKEND_URL}${song.file_path}`} type="audio/mpeg" />
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Decline Modal */}
+      {showDeclineModal && (
+        <div className="decline-modal-overlay" onClick={() => setShowDeclineModal(false)}>
+          <div className="decline-modal" onClick={e => e.stopPropagation()}>
+            <div className="decline-modal-header">
+              <h3>💬 Decline "{selectedSong?.title}"</h3>
+              <button className="close-btn" onClick={() => setShowDeclineModal(false)}>×</button>
+            </div>
+            
+            <div className="decline-modal-content">
+              <p>Please provide feedback to help the artist improve:</p>
+              
+              <div className="reason-options">
+                {predefinedReasons.map((reason) => (
+                  <label key={reason} className="reason-option">
+                    <input
+                      type="radio"
+                      name="declineReason"
+                      value={reason}
+                      checked={declineReason === reason}
+                      onChange={(e) => setDeclineReason(e.target.value)}
+                    />
+                    {reason}
+                  </label>
+                ))}
+                <label className="reason-option">
+                  <input
+                    type="radio"
+                    name="declineReason"
+                    value="custom"
+                    checked={declineReason === 'custom'}
+                    onChange={(e) => setDeclineReason(e.target.value)}
+                  />
+                  Custom reason
+                </label>
+              </div>
+              
+              {declineReason === 'custom' && (
+                <textarea
+                  value={customReason}
+                  onChange={(e) => setCustomReason(e.target.value)}
+                  placeholder="Enter your custom feedback..."
+                  className="custom-reason-input"
+                  rows="3"
+                />
+              )}
+              
+              <div className="decline-modal-actions">
+                <button onClick={() => setShowDeclineModal(false)} className="cancel-btn">
+                  Cancel
+                </button>
+                <button 
+                  onClick={submitDecline}
+                  className="submit-decline-btn"
+                  disabled={!declineReason || (declineReason === 'custom' && !customReason.trim())}
+                >
+                  Send Feedback & Decline
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
