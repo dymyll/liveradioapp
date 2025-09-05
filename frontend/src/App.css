@@ -2544,6 +2544,245 @@ textarea:focus {
   }
 }
 
+/* User Submissions Page */
+.user-submissions {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.submissions-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.submissions-header h2 {
+  color: #5a67d8;
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.submissions-header p {
+  color: #666;
+  font-size: 1.2rem;
+}
+
+.no-submissions {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.no-submissions p {
+  margin: 1rem 0;
+  color: #666;
+  font-size: 1.1rem;
+}
+
+.submissions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 2rem;
+}
+
+.submission-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.submission-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.submission-card.pending {
+  border-color: #f59e0b;
+}
+
+.submission-card.approved {
+  border-color: #10b981;
+}
+
+.submission-card.declined {
+  border-color: #ef4444;
+}
+
+.submission-artwork {
+  width: 100%;
+  height: 150px;
+  margin-bottom: 1.5rem;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.submission-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.submission-info {
+  margin-bottom: 1.5rem;
+}
+
+.submission-info h4 {
+  font-size: 1.2rem;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.submission-info .artist-name {
+  color: #5a67d8;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.submission-info .station-name {
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.submission-info .station-name a {
+  color: #5a67d8;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.submission-info .station-name a:hover {
+  text-decoration: underline;
+}
+
+.submission-info .submitted-date {
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.submission-status {
+  margin-bottom: 1rem;
+}
+
+.status-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.status-badge.pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  border: 2px solid #fbbf24;
+}
+
+.status-badge.approved {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 2px solid #10b981;
+}
+
+.status-badge.declined {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border: 2px solid #ef4444;
+}
+
+.status-badge small {
+  font-size: 0.75rem;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.decline-feedback {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.decline-feedback h5 {
+  color: #dc2626;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.decline-feedback p {
+  color: #666;
+  font-size: 0.9rem;
+  font-style: italic;
+  margin: 0;
+}
+
+.submissions-btn {
+  background: #8b5cf6;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  margin: 0 0.5rem;
+}
+
+.submissions-btn:hover {
+  background: #7c3aed;
+  transform: translateY(-1px);
+}
+
+/* Responsive Design for User Submissions */
+@media (max-width: 768px) {
+  .user-submissions {
+    padding: 1rem;
+  }
+  
+  .submissions-header h2 {
+    font-size: 2rem;
+  }
+  
+  .submissions-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  
+  .submission-card {
+    padding: 1.5rem;
+  }
+  
+  .status-badge {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .submissions-header h2 {
+    font-size: 1.5rem;
+  }
+  
+  .submission-card {
+    padding: 1rem;
+    margin: 0 -1rem;
+    border-radius: 20px 20px 0 0;
+  }
+  
+  .submissions-btn {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.8rem;
+  }
+}
+
 /* Smooth Scrolling */
 html {
   scroll-behavior: smooth;
