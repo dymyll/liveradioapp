@@ -939,6 +939,8 @@ async def upload_song_to_station(
     # Convert datetime to ISO string for JSON serialization
     if 'submitted_at' in song_dict and song_dict['submitted_at']:
         song_dict['submitted_at'] = song_dict['submitted_at'].isoformat()
+    if 'approved_at' in song_dict and song_dict['approved_at']:
+        song_dict['approved_at'] = song_dict['approved_at'].isoformat()
     
     await manager.broadcast_to_station(
         json.dumps({
