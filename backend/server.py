@@ -375,7 +375,7 @@ async def create_schedule(schedule: ScheduleCreate):
     await manager.broadcast_to_room(
         json.dumps({
             "type": "schedule_update",
-            "schedule": schedule_doc.dict()
+            "schedule": serialize_for_json(schedule_doc.dict())
         }),
         "general"
     )
