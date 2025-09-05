@@ -413,14 +413,14 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 # Enhanced Search Endpoint
 @api_router.post("/search")
-async def search_platform(query: str, search_type: str = "all"):
-    """Advanced search across stations, DJs, and artists"""
+async def search_platform(query: str, search_type: str = "all", genre: str = None):
+    """Advanced search across stations, DJs, and artists with genre filtering"""
     current_user = None  # Allow unauthenticated search
     
     query = query.lower().strip()
     
     if not query:
-        return {"stations": [], "total": 0, "query": query}
+        return {"stations": [], "total": 0, "query": query, "search_type": search_type, "genre": genre}
     
     # Build search pipeline
     stations_pipeline = [
@@ -433,29 +433,45 @@ async def search_platform(query: str, search_type: str = "all"):
         }}
     ]
     
-    # Add search filters based on type
-    if search_type == "all" or search_type == "stations":
-        station_match = {
-            "$or": [
-                {"name": {"$regex": query, "$options": "i"}},
-                {"description": {"$regex": query, "$options": "i"}},
-                {"owner_name": {"$regex": query, "$options": "i"}},
-                {"genre": {"$regex": query, "$options": "i"}}
-            ]
-        }
-    elif search_type == "djs":
-        station_match = {
-            "owner_name": {"$regex": query, "$options": "i"}
-        }
-    elif search_type == "artists":
-        station_match = {
-            "station_songs.artist_name": {"$regex": query, "$options": "i"}
-        }
-    else:
-        station_match = {}
+    # Build match conditions
+    match_conditions = []
     
-    # Add match stage for search
-    stations_pipeline.append({"$match": station_match})
+    # Add search filters based on type
+    if search_type == "all":
+        search_conditions = [
+            {"name": {"$regex": query, "$options": "i"}},
+            {"description": {"$regex": query, "$options": "i"}},
+            {"owner_name": {"$regex": query, "$options": "i"}},
+            {"station_songs.artist_name": {"$regex": query, "$options": "i"}}
+        ]
+        match_conditions.append({"$or": search_conditions})
+    elif search_type == "stations":
+        station_conditions = [
+            {"name": {"$regex": query, "$options": "i"}},
+            {"description": {"$regex": query, "$options": "i"}}
+        ]
+        match_conditions.append({"$or": station_conditions})
+    elif search_type == "djs":
+        match_conditions.append({"owner_name": {"$regex": query, "$options": "i"}})
+    elif search_type == "artists":
+        match_conditions.append({"station_songs.artist_name": {"$regex": query, "$options": "i"}})
+    
+    # Add genre filter if specified
+    if genre and genre.lower() != "all":
+        genre_conditions = [
+            {"genre": {"$regex": genre, "$options": "i"}},
+            {"station_songs.genre": {"$regex": genre, "$options": "i"}}
+        ]
+        match_conditions.append({"$or": genre_conditions})
+    
+    # Combine all match conditions
+    if match_conditions:
+        if len(match_conditions) == 1:
+            final_match = match_conditions[0]
+        else:
+            final_match = {"$and": match_conditions}
+        
+        stations_pipeline.append({"$match": final_match})
     
     # Add aggregation for featured artists
     stations_pipeline.extend([
@@ -503,8 +519,45 @@ async def search_platform(query: str, search_type: str = "all"):
         "stations": enhanced_stations,
         "total": len(enhanced_stations),
         "query": query,
-        "search_type": search_type
+        "search_type": search_type,
+        "genre": genre
     }
+
+# Get available genres endpoint
+@api_router.get("/genres")
+async def get_available_genres():
+    """Get all available genres from stations and songs"""
+    # Get genres from stations
+    station_genres_pipeline = [
+        {"$match": {"is_active": True, "genre": {"$ne": None, "$ne": ""}}},
+        {"$group": {"_id": "$genre"}},
+        {"$sort": {"_id": 1}}
+    ]
+    
+    # Get genres from songs
+    song_genres_pipeline = [
+        {"$match": {"approved": True, "genre": {"$ne": None, "$ne": ""}}},
+        {"$group": {"_id": "$genre"}},
+        {"$sort": {"_id": 1}}
+    ]
+    
+    station_genres_cursor = db.stations.aggregate(station_genres_pipeline)
+    song_genres_cursor = db.songs.aggregate(song_genres_pipeline)
+    
+    station_genres = await station_genres_cursor.to_list(100)
+    song_genres = await song_genres_cursor.to_list(100)
+    
+    # Combine and deduplicate genres
+    all_genres = set()
+    for genre_doc in station_genres:
+        if genre_doc["_id"]:
+            all_genres.add(genre_doc["_id"])
+    
+    for genre_doc in song_genres:
+        if genre_doc["_id"]:
+            all_genres.add(genre_doc["_id"])
+    
+    return {"genres": sorted(list(all_genres))}
 
 # Station Management
 @api_router.post("/stations", response_model=Station)
