@@ -2171,6 +2171,379 @@ textarea:focus {
   outline-offset: 2px;
 }
 
+/* Station Requests Management */
+.station-requests {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.requests-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.requests-header h2 {
+  color: #5a67d8;
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.requests-header p {
+  color: #666;
+  font-size: 1.1rem;
+}
+
+.no-requests {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.no-requests p {
+  margin: 1rem 0;
+  color: #666;
+  font-size: 1.1rem;
+}
+
+.requests-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 2rem;
+}
+
+.request-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.request-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  border-color: #5a67d8;
+}
+
+.request-artwork {
+  width: 100%;
+  height: 200px;
+  margin-bottom: 1.5rem;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.request-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artwork-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 4rem;
+  color: white;
+}
+
+.request-info {
+  margin-bottom: 1.5rem;
+}
+
+.request-info h4 {
+  font-size: 1.3rem;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.request-info .artist-name {
+  color: #5a67d8;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.request-info .genre {
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.request-info .submitted-date {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.request-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.approve-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex: 1;
+  min-width: 100px;
+}
+
+.approve-btn:hover {
+  background: #059669;
+  transform: translateY(-2px);
+}
+
+.decline-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex: 1;
+  min-width: 100px;
+}
+
+.decline-btn:hover {
+  background: #dc2626;
+  transform: translateY(-2px);
+}
+
+.download-btn {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  flex: 1;
+  min-width: 100px;
+}
+
+.download-btn:hover {
+  background: #2563eb;
+  transform: translateY(-2px);
+}
+
+.request-preview {
+  margin-top: 1rem;
+}
+
+.request-preview audio {
+  width: 100%;
+  border-radius: 8px;
+}
+
+/* Decline Modal */
+.decline-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.decline-modal {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 2rem;
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  margin: auto;
+  position: relative;
+  z-index: 1000000;
+}
+
+.decline-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.decline-modal-header h3 {
+  color: #5a67d8;
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.decline-modal-content p {
+  color: #333;
+  margin-bottom: 1.5rem;
+  font-size: 1rem;
+}
+
+.reason-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.reason-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.reason-option:hover {
+  border-color: #5a67d8;
+  background: rgba(90, 103, 216, 0.05);
+}
+
+.reason-option input[type="radio"] {
+  margin: 0;
+}
+
+.custom-reason-input {
+  width: 100%;
+  padding: 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  outline: none;
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+  margin-bottom: 1.5rem;
+}
+
+.custom-reason-input:focus {
+  border-color: #5a67d8;
+}
+
+.decline-modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.cancel-btn {
+  background: #6b7280;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.cancel-btn:hover {
+  background: #4b5563;
+}
+
+.submit-decline-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.submit-decline-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.submit-decline-btn:disabled {
+  background: #a0aec0;
+  cursor: not-allowed;
+}
+
+/* Responsive Design for Station Requests */
+@media (max-width: 768px) {
+  .station-requests {
+    padding: 1rem;
+  }
+  
+  .requests-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  
+  .request-card {
+    padding: 1.5rem;
+  }
+  
+  .request-actions {
+    flex-direction: column;
+  }
+  
+  .approve-btn,
+  .decline-btn,
+  .download-btn {
+    min-width: auto;
+  }
+  
+  .decline-modal-overlay {
+    padding: 1rem;
+  }
+  
+  .decline-modal {
+    padding: 1.5rem;
+  }
+  
+  .decline-modal-actions {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .requests-header h2 {
+    font-size: 1.5rem;
+  }
+  
+  .request-card {
+    padding: 1rem;
+    margin: 0 -1rem;
+    border-radius: 20px 20px 0 0;
+  }
+  
+  .decline-modal {
+    padding: 1rem;
+    border-radius: 15px;
+  }
+}
+
 /* Smooth Scrolling */
 html {
   scroll-behavior: smooth;
