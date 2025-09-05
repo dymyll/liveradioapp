@@ -1001,7 +1001,7 @@ async def get_station_song_requests(
 async def download_song(
     station_slug: str,
     song_id: str,
-    current_user: User = Depends(get_station_owner)
+    current_user: User = Depends(get_station_owner_by_slug)
 ):
     """Download a song file (station owner or admin only)"""
     station = await db.stations.find_one({"slug": station_slug})
