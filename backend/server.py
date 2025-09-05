@@ -193,6 +193,25 @@ class Schedule(BaseModel):
     description: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+# New models for approval system
+class SongApproval(BaseModel):
+    song_id: str
+    action: str  # approve, decline
+    reason: Optional[str] = None
+
+class SongSubmissionStatus(BaseModel):
+    id: str
+    title: str
+    artist_name: str
+    station_name: str
+    station_slug: str
+    status: str  # pending, approved, declined
+    submitted_at: datetime
+    approved_at: Optional[datetime] = None
+    declined_at: Optional[datetime] = None
+    decline_reason: Optional[str] = None
+    artwork_url: Optional[str] = None
+
 class LiveStream(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     station_id: str  # Which station this stream belongs to
