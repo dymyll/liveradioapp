@@ -271,7 +271,7 @@ async def upload_song(
     await manager.broadcast_to_room(
         json.dumps({
             "type": "song_upload",
-            "song": song.dict()
+            "song": serialize_for_json(song.dict())
         }),
         "admin"
     )
