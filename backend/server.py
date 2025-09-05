@@ -895,11 +895,16 @@ async def upload_song_to_station(
     await db.songs.insert_one(song.dict())
     
     # Broadcast to station
+    song_dict = song.dict()
+    # Convert datetime to ISO string for JSON serialization
+    if 'submitted_at' in song_dict and song_dict['submitted_at']:
+        song_dict['submitted_at'] = song_dict['submitted_at'].isoformat()
+    
     await manager.broadcast_to_station(
         json.dumps({
             "type": "song_upload",
             "station_id": station["id"],
-            "song": song.dict()
+            "song": song_dict
         }),
         station["id"]
     )
