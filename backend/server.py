@@ -203,7 +203,7 @@ async def submit_artist(artist: ArtistSubmission):
     await manager.broadcast_to_room(
         json.dumps({
             "type": "artist_submission",
-            "artist": artist_doc.dict()
+            "artist": serialize_for_json(artist_doc.dict())
         }),
         "admin"
     )
