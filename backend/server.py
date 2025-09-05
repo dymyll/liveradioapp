@@ -670,8 +670,9 @@ async def get_all_stations():
     return enhanced_stations
 
 @api_router.get("/stations/{station_slug}", response_model=StationWithDetails)
-async def get_station_by_slug(station_slug: str, current_user: Optional[User] = Depends(get_current_user_optional)):
-    """Get station details by slug"""
+async def get_station_by_slug(station_slug: str):
+    """Get station details by slug - public endpoint"""
+    current_user = None  # Allow unauthenticated access
     station = await db.stations.find_one({"slug": station_slug, "is_active": True})
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
