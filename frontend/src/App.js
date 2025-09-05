@@ -1581,9 +1581,17 @@ function Notifications() {
 
 // Main App Component
 function AppContent() {
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
+
+  const handleShowAuth = (loginMode) => {
+    setIsLogin(loginMode);
+    setShowAuthModal(true);
+  };
+
   return (
     <div className="App">
-      <PlatformHeader />
+      <PlatformHeader onShowAuth={handleShowAuth} />
       <Notifications />
       
       <Routes>
@@ -1591,6 +1599,15 @@ function AppContent() {
         <Route path="/create-station" element={<CreateStation />} />
         <Route path="/station/:stationSlug" element={<StationPage />} />
       </Routes>
+
+      {/* Render auth modal at the top level to avoid stacking context issues */}
+      {showAuthModal && (
+        <AuthModal
+          isLogin={isLogin}
+          onClose={() => setShowAuthModal(false)}
+          onSwitch={() => setIsLogin(!isLogin)}
+        />
+      )}
     </div>
   );
 }
