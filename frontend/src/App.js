@@ -1634,6 +1634,121 @@ function AppContent() {
   );
 }
 
+// User Submissions Page
+function UserSubmissions() {
+  const { state } = useRadio();
+  const [submissions, setSubmissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (state.isAuthenticated) {
+      loadSubmissions();
+    }
+  }, [state.isAuthenticated]);
+
+  const loadSubmissions = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API}/user/submissions`);
+      setSubmissions(response.data);
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!state.isAuthenticated) {
+    return (
+      <div className="user-submissions">
+        <div className="please-login">
+          <h2>🔐 Please Sign In</h2>
+          <p>You need to be signed in to view your music submissions.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="user-submissions">
+        <div className="submissions-header">
+          <h2>📋 My Music Submissions</h2>
+          <p>Loading your submissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="user-submissions">
+      <div className="submissions-header">
+        <h2>📋 My Music Submissions</h2>
+        <p>Track the status of your music submissions across all stations</p>
+      </div>
+
+      {submissions.length === 0 ? (
+        <div className="no-submissions">
+          <p>🎵 You haven't submitted any music yet.</p>
+          <p>Visit a station and use the "Add Music" feature to submit your tracks!</p>
+        </div>
+      ) : (
+        <div className="submissions-grid">
+          {submissions.map((submission) => (
+            <div key={submission.id} className={`submission-card ${submission.status}`}>
+              <div className="submission-artwork">
+                {submission.artwork_url ? (
+                  <img src={`${BACKEND_URL}${submission.artwork_url}`} alt={submission.title} />
+                ) : (
+                  <div className="artwork-placeholder">🎵</div>
+                )}
+              </div>
+              
+              <div className="submission-info">
+                <h4>{submission.title}</h4>
+                <p className="artist-name">by {submission.artist_name}</p>
+                <p className="station-name">
+                  Station: <Link to={`/station/${submission.station_slug}`}>{submission.station_name}</Link>
+                </p>
+                <p className="submitted-date">
+                  Submitted: {new Date(submission.submitted_at).toLocaleDateString()}
+                </p>
+              </div>
+              
+              <div className="submission-status">
+                {submission.status === 'pending' && (
+                  <div className="status-badge pending">
+                    ⏳ Pending Review
+                  </div>
+                )}
+                {submission.status === 'approved' && (
+                  <div className="status-badge approved">
+                    ✅ Approved
+                    <small>Approved: {new Date(submission.approved_at).toLocaleDateString()}</small>
+                  </div>
+                )}
+                {submission.status === 'declined' && (
+                  <div className="status-badge declined">
+                    ❌ Declined
+                    <small>Declined: {new Date(submission.declined_at).toLocaleDateString()}</small>
+                  </div>
+                )}
+              </div>
+              
+              {submission.status === 'declined' && submission.decline_reason && (
+                <div className="decline-feedback">
+                  <h5>💬 Feedback from Station:</h5>
+                  <p>"{submission.decline_reason}"</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
