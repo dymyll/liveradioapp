@@ -905,6 +905,17 @@ async def upload_song_to_station(
             await f.write(artwork_content)
         artwork_url = f"/uploads/artwork/{artwork_filename}"
     
+    # Determine approval status based on user role and station ownership
+    is_auto_approved = False
+    song_status = "pending"
+    
+    # Auto-approve if user is station owner or admin
+    if (current_user.role == "admin" or 
+        station["owner_id"] == current_user.id or 
+        current_user.role == "dj"):
+        is_auto_approved = True
+        song_status = "approved"
+    
     # Create song document
     song = Song(
         title=title,
@@ -914,7 +925,11 @@ async def upload_song_to_station(
         file_path=f"/uploads/audio/{audio_filename}",
         genre=genre,
         artwork_url=artwork_url,
-        source="upload"
+        source="upload",
+        approved=is_auto_approved,
+        status=song_status,
+        approved_at=datetime.now(timezone.utc) if is_auto_approved else None,
+        approved_by=current_user.id if is_auto_approved else None
     )
     
     await db.songs.insert_one(song.dict())
