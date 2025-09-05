@@ -563,45 +563,67 @@ async def get_available_genres():
 @api_router.post("/stations", response_model=Station)
 async def create_station(station_data: StationCreate, current_user: User = Depends(get_current_dj_or_admin)):
     """Create a new radio station"""
-    slug = create_station_slug(station_data.name)
-    
-    # Check if slug already exists
-    existing_station = await db.stations.find_one({"slug": slug})
-    if existing_station:
-        # Add number suffix if slug exists
-        counter = 1
-        while existing_station:
-            new_slug = f"{slug}-{counter}"
-            existing_station = await db.stations.find_one({"slug": new_slug})
-            counter += 1
-        slug = new_slug
-    
-    station = Station(
-        name=station_data.name,
-        slug=slug,
-        description=station_data.description,
-        owner_id=current_user.id,
-        owner_name=current_user.username,
-        genre=station_data.genre
-    )
-    
-    await db.stations.insert_one(station.dict())
-    
-    # Add station to user's owned stations
-    await db.users.update_one(
-        {"id": current_user.id},
-        {"$addToSet": {"owned_stations": station.id}}
-    )
-    
-    # Broadcast new station creation
-    await manager.broadcast_to_platform(
-        json.dumps({
-            "type": "station_created",
-            "station": station.dict()
-        })
-    )
-    
-    return station
+    try:
+        slug = create_station_slug(station_data.name)
+        
+        # Check if slug already exists
+        existing_station = await db.stations.find_one({"slug": slug})
+        if existing_station:
+            # Add number suffix if slug exists
+            counter = 1
+            while existing_station:
+                new_slug = f"{slug}-{counter}"
+                existing_station = await db.stations.find_one({"slug": new_slug})
+                counter += 1
+            slug = new_slug
+        
+        station = Station(
+            name=station_data.name,
+            slug=slug,
+            description=station_data.description,
+            owner_id=current_user.id,
+            owner_name=current_user.username,
+            genre=station_data.genre
+        )
+        
+        # Insert station into database
+        result = await db.stations.insert_one(station.dict())
+        if not result.inserted_id:
+            raise HTTPException(status_code=500, detail="Failed to create station in database")
+        
+        # Add station to user's owned stations
+        user_update_result = await db.users.update_one(
+            {"id": current_user.id},
+            {"$addToSet": {"owned_stations": station.id}}
+        )
+        
+        # Prepare station data for broadcasting (convert datetime to string)
+        station_dict = station.dict()
+        station_dict["created_at"] = station_dict["created_at"].isoformat()
+        
+        # Broadcast new station creation
+        try:
+            await manager.broadcast_to_platform(
+                json.dumps({
+                    "type": "station_created",
+                    "station": station_dict
+                })
+            )
+        except Exception as broadcast_error:
+            logger.warning(f"Failed to broadcast station creation: {broadcast_error}")
+            # Don't fail the whole operation if broadcast fails
+        
+        return station
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Station creation error: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to create station: {str(e)}"
+        )
 
 @api_router.get("/stations", response_model=List[StationWithDetails])
 async def get_all_stations(current_user: Optional[User] = Depends(get_current_user_optional)):
