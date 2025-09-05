@@ -419,10 +419,8 @@ function AuthModal({ isLogin, onClose, onSwitch }) {
 }
 
 // Platform Header
-function PlatformHeader() {
+function PlatformHeader({ onShowAuth }) {
   const { state, logout } = useRadio();
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [isLogin, setIsLogin] = useState(true);
   
   return (
     <header className="platform-header">
@@ -450,19 +448,13 @@ function PlatformHeader() {
           ) : (
             <div className="auth-buttons">
               <button 
-                onClick={() => {
-                  setIsLogin(true);
-                  setShowAuthModal(true);
-                }}
+                onClick={() => onShowAuth(true)}
                 className="auth-btn login-btn"
               >
                 Sign In
               </button>
               <button 
-                onClick={() => {
-                  setIsLogin(false);
-                  setShowAuthModal(true);
-                }}
+                onClick={() => onShowAuth(false)}
                 className="auth-btn register-btn"
               >
                 Join Platform
@@ -471,37 +463,90 @@ function PlatformHeader() {
           )}
         </div>
       </div>
-      
-      {showAuthModal && (
-        <AuthModal
-          isLogin={isLogin}
-          onClose={() => setShowAuthModal(false)}
-          onSwitch={() => setIsLogin(!isLogin)}
-        />
-      )}
     </header>
   );
 }
 
-// Station Discovery Page
+// Station Discovery Page with Enhanced Search
 function StationDiscovery() {
   const { state, loadAllStations } = useRadio();
-  const [filter, setFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchType, setSearchType] = useState('all');
   const [selectedGenre, setSelectedGenre] = useState('');
+  const [availableGenres, setAvailableGenres] = useState([]);
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showingResults, setShowingResults] = useState(false);
 
   useEffect(() => {
     loadAllStations();
+    loadAvailableGenres();
   }, []);
 
-  const filteredStations = state.allStations.filter(station => {
-    const matchesFilter = station.name.toLowerCase().includes(filter.toLowerCase()) ||
-                         station.description?.toLowerCase().includes(filter.toLowerCase()) ||
-                         station.owner_name.toLowerCase().includes(filter.toLowerCase());
-    const matchesGenre = !selectedGenre || station.genre === selectedGenre;
-    return matchesFilter && matchesGenre;
-  });
+  const loadAvailableGenres = async () => {
+    try {
+      const response = await axios.get(`${API}/genres`);
+      setAvailableGenres(response.data.genres);
+    } catch (error) {
+      console.error('Error loading genres:', error);
+    }
+  };
 
-  const genres = [...new Set(state.allStations.map(station => station.genre).filter(Boolean))];
+  // Real-time search with debouncing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (searchQuery.length >= 2) {
+        performSearch();
+      } else {
+        setSearchResults([]);
+        setShowingResults(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, searchType, selectedGenre]);
+
+  const performSearch = async () => {
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const searchParams = new URLSearchParams({
+        query: searchQuery,
+        search_type: searchType
+      });
+      
+      if (selectedGenre && selectedGenre !== 'all') {
+        searchParams.append('genre', selectedGenre);
+      }
+
+      const response = await axios.post(`${API}/search?${searchParams.toString()}`);
+      setSearchResults(response.data.stations);
+      setShowingResults(true);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      performSearch();
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSelectedGenre('');
+    setSearchType('all');
+    setShowingResults(false);
+    setSearchResults([]);
+  };
+
+  const stationsToDisplay = showingResults ? searchResults : state.allStations;
 
   return (
     <div className="station-discovery">
@@ -509,73 +554,235 @@ function StationDiscovery() {
         <h1>🎵 Discover Radio Stations</h1>
         <p>Find your favorite DJs and discover new music</p>
         
-        <div className="discovery-filters">
-          <input
-            type="text"
-            placeholder="Search stations, DJs, or descriptions..."
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="search-input"
-          />
-          <select 
-            value={selectedGenre} 
-            onChange={(e) => setSelectedGenre(e.target.value)}
-            className="genre-filter"
-          >
-            <option value="">All Genres</option>
-            {genres.map(genre => (
-              <option key={genre} value={genre}>{genre}</option>
-            ))}
-          </select>
-        </div>
+        <form onSubmit={handleSearchSubmit} className="advanced-search">
+          <div className="search-controls">
+            <div className="search-input-group">
+              <input
+                type="text"
+                placeholder="Search stations, DJs, artists, or descriptions..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="search-input-large"
+              />
+              <button 
+                type="submit" 
+                className="search-btn"
+                disabled={isSearching}
+              >
+                {isSearching ? '⏳' : '🔍'} Search
+              </button>
+            </div>
+            
+            <div className="search-filters">
+              <select 
+                value={searchType} 
+                onChange={(e) => setSearchType(e.target.value)}
+                className="search-type-filter"
+              >
+                <option value="all">🔍 All</option>
+                <option value="stations">📻 Stations</option>
+                <option value="djs">🎙️ DJs</option>
+                <option value="artists">🎤 Artists</option>
+              </select>
+              
+              <select 
+                value={selectedGenre} 
+                onChange={(e) => setSelectedGenre(e.target.value)}
+                className="genre-filter"
+              >
+                <option value="">🎼 All Genres</option>
+                {availableGenres.map(genre => (
+                  <option key={genre} value={genre}>{genre}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </form>
+        
+        {showingResults && (
+          <div className="search-results-info">
+            <div className="search-summary">
+              <p>
+                Found {searchResults.length} results for "<strong>{searchQuery}</strong>"
+                {selectedGenre && selectedGenre !== 'all' && (
+                  <span> in <strong>{selectedGenre}</strong></span>
+                )}
+                {searchType !== 'all' && (
+                  <span> ({searchType})</span>
+                )}
+              </p>
+            </div>
+            <button 
+              onClick={clearSearch}
+              className="clear-search-btn"
+            >
+              ✕ Clear Search
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="stations-grid">
-        {filteredStations.map(station => (
-          <div key={station.id} className="station-card">
-            <div className="station-header">
-              <div className="station-info">
-                <h3>
-                  <Link to={`/station/${station.slug}`}>
-                    📻 {station.name}
-                  </Link>
-                </h3>
-                <p className="station-owner">by {station.owner_name}</p>
-                {station.genre && <span className="genre-badge">{station.genre}</span>}
-              </div>
-              
-              {station.is_live && (
-                <div className="live-badge">
-                  <span className="live-dot"></span>
-                  LIVE
-                </div>
-              )}
-            </div>
-            
-            {station.description && (
-              <p className="station-description">{station.description}</p>
-            )}
-            
-            <div className="station-stats">
-              <span>👥 {station.current_listeners} listening</span>
-              <span>❤️ {station.total_followers} followers</span>
-            </div>
-            
-            <div className="station-actions">
-              <Link to={`/station/${station.slug}`} className="listen-btn">
-                🎧 Listen Now
-              </Link>
-            </div>
-          </div>
+        {stationsToDisplay.map(station => (
+          <StationCard key={station.id} station={station} />
         ))}
       </div>
 
-      {filteredStations.length === 0 && (
+      {stationsToDisplay.length === 0 && (
         <div className="no-stations">
-          <h3>No stations found</h3>
-          <p>Try adjusting your search criteria or create your own station!</p>
+          <h3>{showingResults ? 'No stations found' : 'No stations available'}</h3>
+          <p>
+            {showingResults 
+              ? 'Try adjusting your search criteria or genre filter' 
+              : 'Be the first to create a station!'
+            }
+          </p>
         </div>
       )}
+    </div>
+  );
+}
+
+// Enhanced Station Card Component
+function StationCard({ station }) {
+  const { state } = useRadio();
+  const [userRating, setUserRating] = useState(station.user_rating || 0);
+  const [isRating, setIsRating] = useState(false);
+
+  const handleRating = async (rating) => {
+    if (!state.isAuthenticated) {
+      alert('Please sign in to rate stations');
+      return;
+    }
+
+    setIsRating(true);
+    try {
+      await axios.post(`${API}/stations/${station.id}/rate`, {
+        rating: rating
+      });
+      setUserRating(rating);
+      // Update station's average rating in the display
+      station.user_rating = rating;
+    } catch (error) {
+      console.error('Rating error:', error);
+      alert('Failed to save rating');
+    } finally {
+      setIsRating(false);
+    }
+  };
+
+  const renderStars = (rating, interactive = false) => {
+    return (
+      <div className={`star-rating ${interactive ? 'interactive' : ''}`}>
+        {[1, 2, 3, 4, 5].map(star => (
+          <span
+            key={star}
+            className={`star ${star <= rating ? 'filled' : ''} ${interactive ? 'clickable' : ''}`}
+            onClick={interactive ? () => handleRating(star) : undefined}
+            style={{ cursor: interactive ? 'pointer' : 'default' }}
+          >
+            ⭐
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="enhanced-station-card">
+      <div className="station-card-header">
+        {station.artwork_url ? (
+          <img 
+            src={`${BACKEND_URL}${station.artwork_url}`} 
+            alt={`${station.name} artwork`}
+            className="station-artwork"
+          />
+        ) : (
+          <div className="station-artwork-placeholder">
+            📻
+          </div>
+        )}
+        
+        {station.is_live && (
+          <div className="live-badge-overlay">
+            <span className="live-dot"></span>
+            LIVE
+          </div>
+        )}
+      </div>
+      
+      <div className="station-card-content">
+        <div className="station-main-info">
+          <h3>
+            <Link to={`/station/${station.slug}`}>
+              {station.name}
+            </Link>
+          </h3>
+          
+          <div className="station-dj">
+            <span className="dj-label">DJ:</span>
+            <span className="dj-name">{station.owner_name}</span>
+          </div>
+          
+          {station.genre && (
+            <span className="genre-badge">{station.genre}</span>
+          )}
+        </div>
+
+        {station.description && (
+          <p className="station-description">{station.description}</p>
+        )}
+
+        {station.featured_artists && station.featured_artists.length > 0 && (
+          <div className="featured-artists">
+            <span className="artists-label">Featured Artists:</span>
+            <div className="artists-list">
+              {station.featured_artists.slice(0, 3).map((artist, index) => (
+                <span key={index} className="artist-tag">{artist}</span>
+              ))}
+              {station.featured_artists.length > 3 && (
+                <span className="more-artists">+{station.featured_artists.length - 3} more</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="station-ratings-section">
+          <div className="average-rating">
+            {renderStars(Math.round(station.average_rating))}
+            <span className="rating-text">
+              {station.average_rating > 0 ? station.average_rating.toFixed(1) : 'No ratings'}
+              {station.total_ratings > 0 && (
+                <span className="rating-count">({station.total_ratings})</span>
+              )}
+            </span>
+          </div>
+
+          {state.isAuthenticated && (
+            <div className="user-rating">
+              <span className="your-rating-label">Your Rating:</span>
+              {renderStars(userRating, true)}
+            </div>
+          )}
+        </div>
+        
+        <div className="station-stats">
+          <span className="stat">
+            <span className="stat-icon">👥</span>
+            {station.current_listeners} listening
+          </span>
+          <span className="stat">
+            <span className="stat-icon">❤️</span>
+            {station.total_followers} followers
+          </span>
+        </div>
+        
+        <div className="station-actions">
+          <Link to={`/station/${station.slug}`} className="listen-btn">
+            🎧 Listen Now
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
@@ -597,14 +804,59 @@ function CreateStation() {
     setIsCreating(true);
     setError('');
 
-    const result = await createStation(formData.name, formData.description, formData.genre);
-    
-    if (result.success) {
-      navigate(`/station/${result.station.slug}`);
-    } else {
-      setError(result.message);
+    // Basic validation
+    if (!formData.name.trim()) {
+      setError('Station name is required');
+      setIsCreating(false);
+      return;
     }
-    setIsCreating(false);
+
+    if (formData.name.length < 3) {
+      setError('Station name must be at least 3 characters long');
+      setIsCreating(false);
+      return;
+    }
+
+    if (formData.name.length > 50) {
+      setError('Station name must be less than 50 characters');
+      setIsCreating(false);
+      return;
+    }
+
+    try {
+      const response = await axios.post(`${API}/stations`, {
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        genre: formData.genre
+      });
+      
+      // Success - navigate to the new station
+      navigate(`/station/${response.data.slug}`);
+      
+    } catch (error) {
+      console.error('Station creation error:', error);
+      
+      // Extract error message from response
+      let errorMessage = 'Failed to create station';
+      
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.response?.status === 403) {
+        errorMessage = 'You need DJ or Admin permissions to create a station';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Please sign in to create a station';
+      } else if (error.response?.status === 400) {
+        errorMessage = 'Invalid station data. Please check your inputs.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const handleInputChange = (e) => {
@@ -612,6 +864,11 @@ function CreateStation() {
       ...formData,
       [e.target.name]: e.target.value
     });
+    
+    // Clear error when user starts typing
+    if (error) {
+      setError('');
+    }
   };
 
   if (!state.isAuthenticated || (state.currentUser?.role !== 'dj' && state.currentUser?.role !== 'admin')) {
@@ -619,6 +876,7 @@ function CreateStation() {
       <div className="create-station-unauthorized">
         <h2>🚫 Access Denied</h2>
         <p>You need to be signed in as a DJ or Admin to create a station.</p>
+        <p>Current role: {state.currentUser?.role || 'Not signed in'}</p>
         <Link to="/" className="back-home-btn">← Back to Home</Link>
       </div>
     );
@@ -633,7 +891,11 @@ function CreateStation() {
         </div>
         
         <form onSubmit={handleSubmit}>
-          {error && <div className="error-message">{error}</div>}
+          {error && (
+            <div className="error-message-detailed">
+              <strong>❌ Error:</strong> {error}
+            </div>
+          )}
           
           <div className="form-group">
             <label htmlFor="name">Station Name *</label>
@@ -645,8 +907,12 @@ function CreateStation() {
               onChange={handleInputChange}
               required
               placeholder="e.g. Mike's Indie Rock Station"
+              maxLength="50"
+              className={error && error.includes('name') ? 'error-input' : ''}
             />
-            <small>This will be used to create your unique URL</small>
+            <small className="input-helper">
+              {formData.name.length}/50 characters - This will be used to create your unique URL
+            </small>
           </div>
           
           <div className="form-group">
@@ -658,7 +924,11 @@ function CreateStation() {
               onChange={handleInputChange}
               placeholder="Tell listeners what makes your station special..."
               rows="4"
+              maxLength="500"
             />
+            <small className="input-helper">
+              {formData.description.length}/500 characters
+            </small>
           </div>
           
           <div className="form-group">
@@ -678,6 +948,11 @@ function CreateStation() {
               <option value="Hip Hop">Hip Hop</option>
               <option value="R&B">R&B</option>
               <option value="Jazz">Jazz</option>
+              <option value="Classical">Classical</option>
+              <option value="Rock">Rock</option>
+              <option value="Pop">Pop</option>
+              <option value="Country">Country</option>
+              <option value="Reggae">Reggae</option>
               <option value="Talk Radio">Talk Radio</option>
               <option value="Mix">Mix</option>
             </select>
@@ -685,11 +960,16 @@ function CreateStation() {
           
           <button 
             type="submit" 
-            disabled={isCreating}
+            disabled={isCreating || !formData.name.trim()}
             className="create-btn"
           >
             {isCreating ? '⏳ Creating Station...' : '🚀 Create My Station'}
           </button>
+          
+          <div className="form-help">
+            <p><strong>💡 Tip:</strong> Choose a unique name that represents your music style!</p>
+            <p><strong>🎵 Next Steps:</strong> After creation, you can upload music and start broadcasting.</p>
+          </div>
         </form>
       </div>
     </div>
@@ -1301,9 +1581,17 @@ function Notifications() {
 
 // Main App Component
 function AppContent() {
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
+
+  const handleShowAuth = (loginMode) => {
+    setIsLogin(loginMode);
+    setShowAuthModal(true);
+  };
+
   return (
     <div className="App">
-      <PlatformHeader />
+      <PlatformHeader onShowAuth={handleShowAuth} />
       <Notifications />
       
       <Routes>
@@ -1311,6 +1599,15 @@ function AppContent() {
         <Route path="/create-station" element={<CreateStation />} />
         <Route path="/station/:stationSlug" element={<StationPage />} />
       </Routes>
+
+      {/* Render auth modal at the top level to avoid stacking context issues */}
+      {showAuthModal && (
+        <AuthModal
+          isLogin={isLogin}
+          onClose={() => setShowAuthModal(false)}
+          onSwitch={() => setIsLogin(!isLogin)}
+        />
+      )}
     </div>
   );
 }

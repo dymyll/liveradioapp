@@ -135,8 +135,18 @@ class Station(BaseModel):
     is_live: bool = False
     current_listeners: int = 0
     total_followers: int = 0
+    average_rating: float = 0.0
+    total_ratings: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     settings: Dict[str, Any] = {}
+
+class StationRating(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    station_id: str
+    rating: int = Field(ge=1, le=5)  # 1-5 star rating
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Song(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -200,6 +210,25 @@ class UserResponse(BaseModel):
     followed_stations: List[str] = []
     created_at: datetime
 
+class StationWithDetails(BaseModel):
+    id: str
+    name: str
+    slug: str
+    description: Optional[str] = None
+    owner_id: str
+    owner_name: str
+    genre: Optional[str] = None
+    artwork_url: Optional[str] = None
+    is_active: bool
+    is_live: bool
+    current_listeners: int
+    total_followers: int
+    average_rating: float
+    total_ratings: int
+    created_at: datetime
+    user_rating: Optional[int] = None  # Current user's rating if logged in
+    featured_artists: List[str] = []  # Top artists on this station
+
 class StationCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -209,6 +238,13 @@ class StationUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     genre: Optional[str] = None
+
+class StationRatingCreate(BaseModel):
+    rating: int = Field(ge=1, le=5)
+
+class SearchQuery(BaseModel):
+    query: str
+    search_type: str = "all"  # all, stations, djs, artists
 
 class UserCreate(BaseModel):
     username: str
@@ -261,6 +297,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise credentials_exception
     return User(**serialize_doc(user))
 
+async def get_current_user_optional(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Optional authentication - returns None if not authenticated"""
+    try:
+        return await get_current_user(credentials)
+    except:
+        return None
+
 async def get_current_dj_or_admin(current_user: User = Depends(get_current_user)):
     if current_user.role not in ["dj", "admin"]:
         raise HTTPException(
@@ -290,6 +333,37 @@ def serialize_doc(doc):
     if doc and "_id" in doc:
         doc.pop("_id")
     return doc
+
+async def calculate_station_rating(station_id: str):
+    """Calculate and update station's average rating"""
+    pipeline = [
+        {"$match": {"station_id": station_id}},
+        {"$group": {
+            "_id": None,
+            "average_rating": {"$avg": "$rating"},
+            "total_ratings": {"$sum": 1}
+        }}
+    ]
+    
+    result = await db.station_ratings.aggregate(pipeline).to_list(1)
+    
+    if result:
+        avg_rating = round(result[0]["average_rating"], 1)
+        total_ratings = result[0]["total_ratings"]
+    else:
+        avg_rating = 0.0
+        total_ratings = 0
+    
+    # Update station with new ratings
+    await db.stations.update_one(
+        {"id": station_id},
+        {"$set": {
+            "average_rating": avg_rating,
+            "total_ratings": total_ratings
+        }}
+    )
+    
+    return avg_rating, total_ratings
 
 # Authentication endpoints (unchanged)
 @api_router.post("/auth/register", response_model=Token)
@@ -337,70 +411,268 @@ async def login(user_credentials: UserLogin):
 async def read_users_me(current_user: User = Depends(get_current_user)):
     return UserResponse(**current_user.dict())
 
+# Enhanced Search Endpoint
+@api_router.post("/search")
+async def search_platform(query: str, search_type: str = "all", genre: str = None):
+    """Advanced search across stations, DJs, and artists with genre filtering"""
+    current_user = None  # Allow unauthenticated search
+    
+    query = query.lower().strip()
+    
+    if not query:
+        return {"stations": [], "total": 0, "query": query, "search_type": search_type, "genre": genre}
+    
+    # Build search pipeline
+    stations_pipeline = [
+        {"$match": {"is_active": True}},
+        {"$lookup": {
+            "from": "songs",
+            "localField": "id",
+            "foreignField": "station_id",
+            "as": "station_songs"
+        }}
+    ]
+    
+    # Build match conditions
+    match_conditions = []
+    
+    # Add search filters based on type
+    if search_type == "all":
+        search_conditions = [
+            {"name": {"$regex": query, "$options": "i"}},
+            {"description": {"$regex": query, "$options": "i"}},
+            {"owner_name": {"$regex": query, "$options": "i"}},
+            {"station_songs.artist_name": {"$regex": query, "$options": "i"}}
+        ]
+        match_conditions.append({"$or": search_conditions})
+    elif search_type == "stations":
+        station_conditions = [
+            {"name": {"$regex": query, "$options": "i"}},
+            {"description": {"$regex": query, "$options": "i"}}
+        ]
+        match_conditions.append({"$or": station_conditions})
+    elif search_type == "djs":
+        match_conditions.append({"owner_name": {"$regex": query, "$options": "i"}})
+    elif search_type == "artists":
+        match_conditions.append({"station_songs.artist_name": {"$regex": query, "$options": "i"}})
+    
+    # Add genre filter if specified
+    if genre and genre.lower() != "all":
+        genre_conditions = [
+            {"genre": {"$regex": genre, "$options": "i"}},
+            {"station_songs.genre": {"$regex": genre, "$options": "i"}}
+        ]
+        match_conditions.append({"$or": genre_conditions})
+    
+    # Combine all match conditions
+    if match_conditions:
+        if len(match_conditions) == 1:
+            final_match = match_conditions[0]
+        else:
+            final_match = {"$and": match_conditions}
+        
+        stations_pipeline.append({"$match": final_match})
+    
+    # Add aggregation for featured artists
+    stations_pipeline.extend([
+        {"$addFields": {
+            "featured_artists": {
+                "$slice": [
+                    {"$setUnion": ["$station_songs.artist_name"]},
+                    5
+                ]
+            }
+        }},
+        {"$project": {
+            "station_songs": 0  # Remove songs from final result
+        }},
+        {"$sort": {"average_rating": -1, "total_followers": -1}}
+    ])
+    
+    # Execute search
+    stations_cursor = db.stations.aggregate(stations_pipeline)
+    stations_data = await stations_cursor.to_list(50)  # Limit to 50 results
+    
+    # Enhance stations with user ratings and live status
+    enhanced_stations = []
+    for station_data in stations_data:
+        station = serialize_doc(station_data)
+        
+        # Update current listeners
+        station["current_listeners"] = len(manager.station_connections.get(station["id"], []))
+        
+        # Check live status
+        live_stream = await db.live_streams.find_one({"station_id": station["id"], "is_active": True})
+        station["is_live"] = bool(live_stream)
+        
+        # Get user's rating if logged in
+        if current_user:
+            user_rating = await db.station_ratings.find_one({
+                "user_id": current_user.id,
+                "station_id": station["id"]
+            })
+            station["user_rating"] = user_rating["rating"] if user_rating else None
+        
+        enhanced_stations.append(StationWithDetails(**station))
+    
+    return {
+        "stations": enhanced_stations,
+        "total": len(enhanced_stations),
+        "query": query,
+        "search_type": search_type,
+        "genre": genre
+    }
+
+# Get available genres endpoint
+@api_router.get("/genres")
+async def get_available_genres():
+    """Get all available genres from stations and songs"""
+    # Get genres from stations
+    station_genres_pipeline = [
+        {"$match": {"is_active": True, "genre": {"$ne": None, "$ne": ""}}},
+        {"$group": {"_id": "$genre"}},
+        {"$sort": {"_id": 1}}
+    ]
+    
+    # Get genres from songs
+    song_genres_pipeline = [
+        {"$match": {"approved": True, "genre": {"$ne": None, "$ne": ""}}},
+        {"$group": {"_id": "$genre"}},
+        {"$sort": {"_id": 1}}
+    ]
+    
+    station_genres_cursor = db.stations.aggregate(station_genres_pipeline)
+    song_genres_cursor = db.songs.aggregate(song_genres_pipeline)
+    
+    station_genres = await station_genres_cursor.to_list(100)
+    song_genres = await song_genres_cursor.to_list(100)
+    
+    # Combine and deduplicate genres
+    all_genres = set()
+    for genre_doc in station_genres:
+        if genre_doc["_id"]:
+            all_genres.add(genre_doc["_id"])
+    
+    for genre_doc in song_genres:
+        if genre_doc["_id"]:
+            all_genres.add(genre_doc["_id"])
+    
+    return {"genres": sorted(list(all_genres))}
+
 # Station Management
 @api_router.post("/stations", response_model=Station)
 async def create_station(station_data: StationCreate, current_user: User = Depends(get_current_dj_or_admin)):
     """Create a new radio station"""
-    slug = create_station_slug(station_data.name)
-    
-    # Check if slug already exists
-    existing_station = await db.stations.find_one({"slug": slug})
-    if existing_station:
-        # Add number suffix if slug exists
-        counter = 1
-        while existing_station:
-            new_slug = f"{slug}-{counter}"
-            existing_station = await db.stations.find_one({"slug": new_slug})
-            counter += 1
-        slug = new_slug
-    
-    station = Station(
-        name=station_data.name,
-        slug=slug,
-        description=station_data.description,
-        owner_id=current_user.id,
-        owner_name=current_user.username,
-        genre=station_data.genre
-    )
-    
-    await db.stations.insert_one(station.dict())
-    
-    # Add station to user's owned stations
-    await db.users.update_one(
-        {"id": current_user.id},
-        {"$addToSet": {"owned_stations": station.id}}
-    )
-    
-    # Broadcast new station creation
-    await manager.broadcast_to_platform(
-        json.dumps({
-            "type": "station_created",
-            "station": station.dict()
-        })
-    )
-    
-    return station
+    try:
+        slug = create_station_slug(station_data.name)
+        
+        # Check if slug already exists
+        existing_station = await db.stations.find_one({"slug": slug})
+        if existing_station:
+            # Add number suffix if slug exists
+            counter = 1
+            while existing_station:
+                new_slug = f"{slug}-{counter}"
+                existing_station = await db.stations.find_one({"slug": new_slug})
+                counter += 1
+            slug = new_slug
+        
+        station = Station(
+            name=station_data.name,
+            slug=slug,
+            description=station_data.description,
+            owner_id=current_user.id,
+            owner_name=current_user.username,
+            genre=station_data.genre
+        )
+        
+        # Insert station into database
+        result = await db.stations.insert_one(station.dict())
+        if not result.inserted_id:
+            raise HTTPException(status_code=500, detail="Failed to create station in database")
+        
+        # Add station to user's owned stations
+        user_update_result = await db.users.update_one(
+            {"id": current_user.id},
+            {"$addToSet": {"owned_stations": station.id}}
+        )
+        
+        # Prepare station data for broadcasting (convert datetime to string)
+        station_dict = station.dict()
+        station_dict["created_at"] = station_dict["created_at"].isoformat()
+        
+        # Broadcast new station creation
+        try:
+            await manager.broadcast_to_platform(
+                json.dumps({
+                    "type": "station_created",
+                    "station": station_dict
+                })
+            )
+        except Exception as broadcast_error:
+            logger.warning(f"Failed to broadcast station creation: {broadcast_error}")
+            # Don't fail the whole operation if broadcast fails
+        
+        return station
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Station creation error: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to create station: {str(e)}"
+        )
 
-@api_router.get("/stations", response_model=List[Station])
+@api_router.get("/stations", response_model=List[StationWithDetails])
 async def get_all_stations():
-    """Get all active stations for discovery"""
+    """Get all active stations for discovery - public endpoint"""
+    current_user = None  # Allow unauthenticated access
     stations = await db.stations.find({"is_active": True}).to_list(100)
     
-    # Update listener counts and live status
+    enhanced_stations = []
     for station in stations:
         station_id = station["id"]
+        
         # Update current listeners count
         station["current_listeners"] = len(manager.station_connections.get(station_id, []))
         
         # Check if station has active live stream
         live_stream = await db.live_streams.find_one({"station_id": station_id, "is_active": True})
         station["is_live"] = bool(live_stream)
+        
+        # Get featured artists for this station
+        featured_artists_pipeline = [
+            {"$match": {"station_id": station_id, "approved": True}},
+            {"$group": {"_id": "$artist_name", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 5},
+            {"$project": {"_id": 1}}
+        ]
+        
+        featured_artists_cursor = db.songs.aggregate(featured_artists_pipeline)
+        featured_artists_data = await featured_artists_cursor.to_list(5)
+        station["featured_artists"] = [artist["_id"] for artist in featured_artists_data]
+        
+        # Get user's rating if logged in
+        if current_user:
+            user_rating = await db.station_ratings.find_one({
+                "user_id": current_user.id,
+                "station_id": station_id
+            })
+            station["user_rating"] = user_rating["rating"] if user_rating else None
+        else:
+            station["user_rating"] = None
+        
+        enhanced_stations.append(StationWithDetails(**serialize_doc(station)))
     
-    return [Station(**serialize_doc(station)) for station in stations]
+    return enhanced_stations
 
-@api_router.get("/stations/{station_slug}", response_model=Station)
+@api_router.get("/stations/{station_slug}", response_model=StationWithDetails)
 async def get_station_by_slug(station_slug: str):
-    """Get station details by slug"""
+    """Get station details by slug - public endpoint"""
+    current_user = None  # Allow unauthenticated access
     station = await db.stations.find_one({"slug": station_slug, "is_active": True})
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
@@ -412,7 +684,94 @@ async def get_station_by_slug(station_slug: str):
     live_stream = await db.live_streams.find_one({"station_id": station_id, "is_active": True})
     station["is_live"] = bool(live_stream)
     
-    return Station(**serialize_doc(station))
+    # Get featured artists
+    featured_artists_pipeline = [
+        {"$match": {"station_id": station_id, "approved": True}},
+        {"$group": {"_id": "$artist_name", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 5},
+        {"$project": {"_id": 1}}
+    ]
+    
+    featured_artists_cursor = db.songs.aggregate(featured_artists_pipeline)
+    featured_artists_data = await featured_artists_cursor.to_list(5)
+    station["featured_artists"] = [artist["_id"] for artist in featured_artists_data]
+    
+    # Get user's rating if logged in
+    if current_user:
+        user_rating = await db.station_ratings.find_one({
+            "user_id": current_user.id,
+            "station_id": station_id
+        })
+        station["user_rating"] = user_rating["rating"] if user_rating else None
+    else:
+        station["user_rating"] = None
+    
+    return StationWithDetails(**serialize_doc(station))
+
+# Station Rating System
+@api_router.post("/stations/{station_id}/rate")
+async def rate_station(station_id: str, rating_data: StationRatingCreate, current_user: User = Depends(get_current_user)):
+    """Rate a station (1-5 stars)"""
+    # Check if station exists
+    station = await db.stations.find_one({"id": station_id})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    # Check if user already rated this station
+    existing_rating = await db.station_ratings.find_one({
+        "user_id": current_user.id,
+        "station_id": station_id
+    })
+    
+    if existing_rating:
+        # Update existing rating
+        await db.station_ratings.update_one(
+            {"user_id": current_user.id, "station_id": station_id},
+            {"$set": {
+                "rating": rating_data.rating,
+                "updated_at": datetime.now(timezone.utc)
+            }}
+        )
+    else:
+        # Create new rating
+        new_rating = StationRating(
+            user_id=current_user.id,
+            station_id=station_id,
+            rating=rating_data.rating
+        )
+        await db.station_ratings.insert_one(new_rating.dict())
+    
+    # Recalculate station's average rating
+    await calculate_station_rating(station_id)
+    
+    return {"message": "Rating saved successfully"}
+
+@api_router.get("/stations/{station_id}/ratings")
+async def get_station_ratings(station_id: str):
+    """Get station rating statistics"""
+    # Check if station exists
+    station = await db.stations.find_one({"id": station_id})
+    if not station:
+        raise HTTPException(status_code=404, detail="Station not found")
+    
+    # Get rating distribution
+    pipeline = [
+        {"$match": {"station_id": station_id}},
+        {"$group": {
+            "_id": "$rating",
+            "count": {"$sum": 1}
+        }},
+        {"$sort": {"_id": -1}}
+    ]
+    
+    rating_distribution = await db.station_ratings.aggregate(pipeline).to_list(5)
+    
+    return {
+        "average_rating": station["average_rating"],
+        "total_ratings": station["total_ratings"],
+        "distribution": {str(item["_id"]): item["count"] for item in rating_distribution}
+    }
 
 @api_router.put("/stations/{station_id}")
 async def update_station(
@@ -475,7 +834,7 @@ async def unfollow_station(station_id: str, current_user: User = Depends(get_cur
 # Station-specific content endpoints
 @api_router.get("/stations/{station_slug}/songs")
 async def get_station_songs(station_slug: str, approved_only: bool = True):
-    """Get songs for a specific station"""
+    """Get songs for a specific station - public endpoint"""
     station = await db.stations.find_one({"slug": station_slug})
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")

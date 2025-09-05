@@ -7,7 +7,7 @@ import io
 import os
 
 class IndieRadioAPITester:
-    def __init__(self, base_url="https://indie-music-station.preview.emergentagent.com"):
+    def __init__(self, base_url="https://sonic-pulse-4.preview.emergentagent.com"):
         self.base_url = base_url
         self.api_url = f"{base_url}/api"
         self.tests_run = 0
